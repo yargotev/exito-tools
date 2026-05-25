@@ -1,0 +1,65 @@
+schema: spec-driven
+project: exito-tools
+
+context: |
+  Stack: Go application scaffold with module, root CLI, application wiring seam, capability registry, and focused tests.
+  Surfaces: CLI via Cobra and TUI via Bubble Tea.
+  Architecture: shared Use Cases, explicit application wiring, immutable Capability Registry, and domain-owned API clients.
+  Configuration: YAML for non-sensitive settings; environment variables and local dotenv files for credentials.
+  Constraint: Viper stays behind the Configuration Resolver and user-facing contracts remain English-only.
+
+testing:
+  detected_at: 2026-05-25
+  strict_tdd: false
+  availability: available
+  reason: Initial Go module and focused unit tests are present; strict TDD was disabled during bootstrap because no runner existed before this slice.
+  test_runner:
+    framework: go test
+    command: go test ./...
+  layers:
+    unit:
+      available: true
+      tool: go test
+    integration:
+      available: false
+      tool: ""
+    e2e:
+      available: false
+      tool: ""
+  coverage:
+    available: true
+    command: go test ./... -cover
+  quality_tools:
+    linter:
+      available: true
+      command: go vet ./...
+    type_checker:
+      available: false
+      command: ""
+    formatter:
+      available: true
+      command: gofmt -l cmd internal
+
+rules:
+  proposal:
+    - Align proposals with CONTEXT.md, PRD decisions, and existing ADR terminology.
+    - Include rollback notes when a change introduces risky write behavior.
+  specs:
+    - Use Given/When/Then scenarios and RFC 2119 keywords.
+    - Keep capability names aligned with documented Capability IDs.
+  design:
+    - Preserve domain independence from Cobra, Bubble Tea, and other surface packages.
+    - Record rationale when deviating from documented package layout or ADRs.
+  tasks:
+    - Group work into reviewable phases and keep tasks completable in one session.
+    - Prefer deep-module foundations before surface adapters, matching the PRD sequence.
+  apply:
+    - Follow existing terminology from CONTEXT.md and docs/adr.
+    tdd: false
+    test_command: go test ./...
+  verify:
+    test_command: go test ./...
+    build_command: go build ./cmd/exito
+    coverage_threshold: 0
+  archive:
+    - Warn before merging destructive or contract-breaking deltas.
