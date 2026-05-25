@@ -6,16 +6,12 @@ import (
 	"testing"
 
 	"github.com/yargotev/exito-tools/internal/app"
+	"github.com/yargotev/exito-tools/internal/registry"
 	clisurface "github.com/yargotev/exito-tools/internal/surface/cli"
 )
 
 func TestRootHelpPaths(t *testing.T) {
 	t.Parallel()
-
-	application, err := app.New()
-	if err != nil {
-		t.Fatalf("app.New() error = %v", err)
-	}
 
 	tests := []struct {
 		name string
@@ -30,7 +26,7 @@ func TestRootHelpPaths(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			root := clisurface.NewRoot(application)
+			root := clisurface.NewRoot(app.New)
 			var output bytes.Buffer
 			root.SetOut(&output)
 			root.SetErr(&output)
@@ -57,5 +53,52 @@ func TestRootHelpPaths(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRootWiresBootFlagsIntoApplicationOptions(t *testing.T) {
+	t.Parallel()
+
+	var got app.Options
+	root := clisurface.NewRoot(func(options app.Options) (*app.Application, error) {
+		got = options
+		return &app.Application{Registry: registry.NewBuilder().Finalize()}, nil
+	})
+
+	var output bytes.Buffer
+	root.SetOut(&output)
+	root.SetErr(&output)
+	root.SetArgs([]string{"--config", "./team.yaml", "--profile", "prod"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if got.Config.ConfigPath != "./team.yaml" {
+		t.Fatalf("ConfigPath = %q, want ./team.yaml", got.Config.ConfigPath)
+	}
+	if got.Config.Profile != "prod" {
+		t.Fatalf("Profile = %q, want prod", got.Config.Profile)
+	}
+}
+
+func TestRootHelpAdvertisesBootFlags(t *testing.T) {
+	t.Parallel()
+
+	root := clisurface.NewRoot(app.New)
+	var output bytes.Buffer
+	root.SetOut(&output)
+	root.SetErr(&output)
+	root.SetArgs([]string{"--help"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	rendered := output.String()
+	for _, fragment := range []string{"--config", "--profile"} {
+		if !strings.Contains(rendered, fragment) {
+			t.Fatalf("help output missing %q\n%s", fragment, rendered)
+		}
 	}
 }

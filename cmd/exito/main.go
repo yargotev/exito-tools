@@ -10,12 +10,7 @@ import (
 )
 
 func main() {
-	application, err := app.New()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	root := clisurface.NewRoot(application)
+	root := clisurface.NewRoot(app.New)
 	root.SetOut(os.Stdout)
 	root.SetErr(os.Stderr)
 
