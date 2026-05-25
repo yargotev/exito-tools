@@ -1,6 +1,7 @@
 package registry_test
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -77,6 +78,23 @@ func TestBuilderLifecycle(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "duplicate ID returns stable error",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				builder := registry.NewBuilder()
+				definition := capability.Definition{ID: "foundation.example"}
+				if err := builder.Register(definition); err != nil {
+					t.Fatalf("Register() error = %v", err)
+				}
+
+				err := builder.Register(capability.Definition{ID: definition.ID})
+				if !errors.Is(err, registry.ErrDuplicateCapability) {
+					t.Fatalf("Register() error = %v, want %v", err, registry.ErrDuplicateCapability)
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -85,5 +103,39 @@ func TestBuilderLifecycle(t *testing.T) {
 			t.Parallel()
 			tc.run(t)
 		})
+	}
+}
+
+func TestFindExecutable(t *testing.T) {
+	t.Parallel()
+
+	definition := capability.Definition{
+		ID:          "foundation.example",
+		Title:       "Foundation Example",
+		Description: "Registered during application boot.",
+	}
+	handler := func(context.Context, capability.ExecutionRequest) (capability.ExecutionResult, error) {
+		return capability.ExecutionResult{Data: "ok"}, nil
+	}
+
+	builder := registry.NewBuilder()
+	if err := builder.RegisterExecutable(capability.Executable{Definition: definition, Handler: handler}); err != nil {
+		t.Fatalf("RegisterExecutable() error = %v", err)
+	}
+
+	finalized := builder.Finalize()
+	entry, ok := finalized.Find(definition.ID)
+	if !ok {
+		t.Fatalf("Find(%q) ok = false, want true", definition.ID)
+	}
+	if entry.Definition != definition {
+		t.Fatalf("Find() definition = %#v, want %#v", entry.Definition, definition)
+	}
+	if entry.Handler == nil {
+		t.Fatalf("Find() handler is nil")
+	}
+
+	if _, ok := finalized.Find("missing.example"); ok {
+		t.Fatalf("Find() ok = true for missing ID, want false")
 	}
 }
