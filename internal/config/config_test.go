@@ -275,10 +275,10 @@ func resolveForTest(t *testing.T, options config.Options) config.Effective {
 func writeFile(t *testing.T, path string) {
 	t.Helper()
 
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(path), err)
 	}
-	if err := os.WriteFile(path, []byte("placeholder: true\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("placeholder: true\n"), 0o600); err != nil {
 		t.Fatalf("WriteFile(%q) error = %v", path, err)
 	}
 }

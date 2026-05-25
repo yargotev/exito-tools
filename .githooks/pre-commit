@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "Running gofumpt..."
+go run mvdan.cc/gofumpt@v0.10.0 -w .
+
+echo "Running go mod tidy..."
+go mod tidy
+
+if ! git diff --quiet; then
+  echo "gofumpt or go mod tidy changed files. Review and stage these changes before committing:"
+  git diff --name-only
+  exit 1
+fi
+
+echo "Running golangci-lint..."
+go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2 run
+
+echo "Running tests..."
+go test ./...
