@@ -3,6 +3,7 @@ package registry_test
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/yargotev/exito-tools/internal/capability"
@@ -24,8 +25,13 @@ func TestBuilderLifecycle(t *testing.T) {
 				builder := registry.NewBuilder()
 				definition := capability.Definition{
 					ID:          "foundation.example",
+					Domain:      "foundation",
+					Version:     "1.0.0",
 					Title:       "Foundation Example",
 					Description: "Registered during application boot.",
+					Risk:        capability.RiskReadOnly,
+					Audiences:   []capability.Audience{capability.AudienceAgents},
+					Visibility:  []capability.Visibility{capability.VisibilityCLI},
 				}
 
 				if err := builder.Register(definition); err != nil {
@@ -39,13 +45,14 @@ func TestBuilderLifecycle(t *testing.T) {
 					t.Fatalf("All() length = %d, want 1", len(got))
 				}
 
-				if got[0] != definition {
+				if !reflect.DeepEqual(got[0], definition) {
 					t.Fatalf("All()[0] = %#v, want %#v", got[0], definition)
 				}
 
 				got[0].Title = "mutated outside registry"
+				got[0].Audiences[0] = capability.AudiencePeople
 				again := finalized.All()
-				if again[0] != definition {
+				if !reflect.DeepEqual(again[0], definition) {
 					t.Fatalf("All() should return a defensive copy, got %#v want %#v", again[0], definition)
 				}
 			},
@@ -128,7 +135,7 @@ func TestFindExecutable(t *testing.T) {
 	if !ok {
 		t.Fatalf("Find(%q) ok = false, want true", definition.ID)
 	}
-	if entry.Definition != definition {
+	if !reflect.DeepEqual(entry.Definition, definition) {
 		t.Fatalf("Find() definition = %#v, want %#v", entry.Definition, definition)
 	}
 	if entry.Handler == nil {

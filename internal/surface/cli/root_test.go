@@ -115,8 +115,13 @@ func TestCapabilitiesCommandEmitsInventoryEnvelope(t *testing.T) {
 	builder := registry.NewBuilder()
 	if err := builder.Register(capability.Definition{
 		ID:          "foundation.example",
+		Domain:      "foundation",
+		Version:     "1.0.0",
 		Title:       "Foundation Example",
 		Description: "Registered during application boot.",
+		Risk:        capability.RiskReadOnly,
+		Audiences:   []capability.Audience{capability.AudienceAgents, capability.AudiencePeople},
+		Visibility:  []capability.Visibility{capability.VisibilityCLI, capability.VisibilityCommandPalette},
 	}); err != nil {
 		t.Fatalf("Register() error = %v", err)
 	}
@@ -171,8 +176,18 @@ func TestCapabilitiesCommandEmitsInventoryEnvelope(t *testing.T) {
 	if len(got.Data.Capabilities) != 1 {
 		t.Fatalf("capabilities length = %d, want 1", len(got.Data.Capabilities))
 	}
-	if got.Data.Capabilities[0].ID != "foundation.example" {
-		t.Fatalf("capability ID = %q, want foundation.example", got.Data.Capabilities[0].ID)
+	capabilityGot := got.Data.Capabilities[0]
+	if capabilityGot.ID != "foundation.example" {
+		t.Fatalf("capability ID = %q, want foundation.example", capabilityGot.ID)
+	}
+	if capabilityGot.Domain != "foundation" || capabilityGot.Version != "1.0.0" || capabilityGot.Risk != capability.RiskReadOnly {
+		t.Fatalf("capability metadata = %#v, want domain, version, and risk", capabilityGot)
+	}
+	if len(capabilityGot.Audiences) != 2 || capabilityGot.Audiences[0] != capability.AudienceAgents || capabilityGot.Audiences[1] != capability.AudiencePeople {
+		t.Fatalf("capability audiences = %#v, want agents and people", capabilityGot.Audiences)
+	}
+	if len(capabilityGot.Visibility) != 2 || capabilityGot.Visibility[0] != capability.VisibilityCLI || capabilityGot.Visibility[1] != capability.VisibilityCommandPalette {
+		t.Fatalf("capability visibility = %#v, want cli and command-palette", capabilityGot.Visibility)
 	}
 }
 

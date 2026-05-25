@@ -2,11 +2,51 @@ package capability
 
 import "context"
 
+// RiskLevel classifies the operational risk of running a Capability.
+type RiskLevel string
+
+const (
+	// RiskReadOnly marks a Capability that does not intentionally mutate external state.
+	RiskReadOnly RiskLevel = "read-only"
+	// RiskSafeWrite marks a Capability that mutates state in a routine, reversible, or low-risk way.
+	RiskSafeWrite RiskLevel = "safe-write"
+	// RiskDestructive marks a Capability that can delete, overwrite, or otherwise cause high-impact changes.
+	RiskDestructive RiskLevel = "destructive"
+)
+
+// Audience declares the intended consumer group for a Capability.
+type Audience string
+
+const (
+	// AudienceAgents marks a Capability intended for automation and agent workflows.
+	AudienceAgents Audience = "agents"
+	// AudiencePeople marks a Capability intended for human-facing flows.
+	AudiencePeople Audience = "people"
+)
+
+// Visibility declares where a Capability may be promoted by interaction surfaces.
+type Visibility string
+
+const (
+	// VisibilityCLI makes a Capability visible to the machine-first CLI surface.
+	VisibilityCLI Visibility = "cli"
+	// VisibilityTUI makes a Capability visible to primary TUI navigation.
+	VisibilityTUI Visibility = "tui"
+	// VisibilityCommandPalette makes a Capability searchable in command palette style discovery.
+	VisibilityCommandPalette Visibility = "command-palette"
+)
+
 // Definition is the shared metadata skeleton for a capability.
 type Definition struct {
-	ID          string `json:"id"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
+	ID                   string       `json:"id"`
+	Domain               string       `json:"domain,omitempty"`
+	Version              string       `json:"version,omitempty"`
+	Title                string       `json:"title"`
+	Description          string       `json:"description"`
+	Risk                 RiskLevel    `json:"risk,omitempty"`
+	RequiresConfirmation bool         `json:"requiresConfirmation,omitempty"`
+	Audiences            []Audience   `json:"audiences,omitempty"`
+	Visibility           []Visibility `json:"visibility,omitempty"`
 }
 
 // Input is a neutral, schema-shaped object supplied to a Capability execution.
