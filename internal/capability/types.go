@@ -15,8 +15,11 @@ type StructuredError struct {
 
 // EnvelopeMeta is the standard metadata container shared by CLI JSON envelopes.
 type EnvelopeMeta struct {
-	Profile      string `json:"profile,omitempty"`
-	CapabilityID string `json:"capabilityId,omitempty"`
+	RequestID     string `json:"requestId"`
+	CorrelationID string `json:"correlationId,omitempty"`
+	Profile       string `json:"profile,omitempty"`
+	CapabilityID  string `json:"capabilityId,omitempty"`
+	DurationMS    int64  `json:"durationMs"`
 }
 
 // Envelope is the shared JSON-envelope-shaped result skeleton.

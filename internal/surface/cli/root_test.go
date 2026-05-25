@@ -100,7 +100,7 @@ func TestRootHelpAdvertisesBootFlags(t *testing.T) {
 	}
 
 	rendered := output.String()
-	for _, fragment := range []string{"--config", "--profile"} {
+	for _, fragment := range []string{"--config", "--profile", "--correlation-id"} {
 		if !strings.Contains(rendered, fragment) {
 			t.Fatalf("help output missing %q\n%s", fragment, rendered)
 		}
@@ -145,7 +145,9 @@ func TestCapabilitiesCommandEmitsInventoryEnvelope(t *testing.T) {
 			Capabilities []capability.Definition `json:"capabilities"`
 		} `json:"data"`
 		Meta struct {
-			Profile string `json:"profile"`
+			RequestID  string `json:"requestId"`
+			Profile    string `json:"profile"`
+			DurationMS int64  `json:"durationMs"`
 		} `json:"meta"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
@@ -155,14 +157,52 @@ func TestCapabilitiesCommandEmitsInventoryEnvelope(t *testing.T) {
 	if !got.OK {
 		t.Fatalf("ok = false, want true")
 	}
+	if got.Meta.RequestID == "" {
+		t.Fatalf("meta.requestId is empty")
+	}
 	if got.Meta.Profile != "staging" {
 		t.Fatalf("meta.profile = %q, want staging", got.Meta.Profile)
+	}
+	if got.Meta.DurationMS < 0 {
+		t.Fatalf("meta.durationMs = %d, want non-negative", got.Meta.DurationMS)
 	}
 	if len(got.Data.Capabilities) != 1 {
 		t.Fatalf("capabilities length = %d, want 1", len(got.Data.Capabilities))
 	}
 	if got.Data.Capabilities[0].ID != "foundation.example" {
 		t.Fatalf("capability ID = %q, want foundation.example", got.Data.Capabilities[0].ID)
+	}
+}
+
+func TestCapabilitiesCommandPropagatesCorrelationID(t *testing.T) {
+	t.Parallel()
+
+	root := clisurface.NewRoot(func(options app.Options) (*app.Application, error) {
+		return &app.Application{
+			Config:   config.Effective{Profile: "staging"},
+			Registry: registry.NewBuilder().Finalize(),
+		}, nil
+	})
+
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stdout)
+	root.SetArgs([]string{"--correlation-id", "corr-123", "capabilities"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	var got struct {
+		Meta struct {
+			CorrelationID string `json:"correlationId"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("capabilities output is not JSON: %v\n%s", err, stdout.String())
+	}
+	if got.Meta.CorrelationID != "corr-123" {
+		t.Fatalf("meta.correlationId = %q, want corr-123", got.Meta.CorrelationID)
 	}
 }
 

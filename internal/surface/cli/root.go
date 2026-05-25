@@ -2,11 +2,13 @@ package cli
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/yargotev/exito-tools/internal/app"
 	"github.com/yargotev/exito-tools/internal/capability"
 	"github.com/yargotev/exito-tools/internal/config"
+	"github.com/yargotev/exito-tools/internal/execution"
 	"github.com/yargotev/exito-tools/internal/presenter"
 )
 
@@ -14,8 +16,9 @@ import (
 type Bootstrapper func(app.Options) (*app.Application, error)
 
 type rootOptions struct {
-	configPath string
-	profile    string
+	configPath    string
+	profile       string
+	correlationID string
 }
 
 type capabilitiesData struct {
@@ -49,6 +52,7 @@ func NewRoot(bootstrap Bootstrapper) *cobra.Command {
 
 	command.PersistentFlags().StringVar(&options.configPath, "config", "", "Path to the Exito Tools configuration file")
 	command.PersistentFlags().StringVar(&options.profile, "profile", "", "Configuration profile to use")
+	command.PersistentFlags().StringVar(&options.correlationID, "correlation-id", "", "Correlation ID to include in JSON command metadata")
 	command.SetHelpCommand(&cobra.Command{Hidden: true})
 	command.AddCommand(newCapabilitiesCommand(bootstrap, &options))
 	return command
@@ -60,16 +64,23 @@ func newCapabilitiesCommand(bootstrap Bootstrapper, options *rootOptions) *cobra
 		Short: "Print the machine-readable capability inventory",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			startedAt := time.Now()
+			requestID, err := execution.NewRequestID()
+			if err != nil {
+				return err
+			}
+
 			application, err := bootstrap(appOptions(*options))
 			if err != nil {
 				return err
 			}
 
 			data := capabilitiesData{Capabilities: application.Registry.All()}
+			metadata := execution.NewMetadata(requestID, options.correlationID, startedAt, time.Now())
 			envelope := capability.Envelope[capabilitiesData]{
 				OK:   true,
 				Data: &data,
-				Meta: capability.EnvelopeMeta{Profile: application.Config.Profile},
+				Meta: metadata.EnvelopeMeta(application.Config.Profile, ""),
 			}
 
 			return presenter.WriteJSON(cmd.OutOrStdout(), envelope)
