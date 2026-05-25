@@ -1,7 +1,10 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
+	"os"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -55,6 +58,7 @@ func NewRoot(bootstrap Bootstrapper) *cobra.Command {
 	command.PersistentFlags().StringVar(&options.correlationID, "correlation-id", "", "Correlation ID to include in JSON command metadata")
 	command.SetHelpCommand(&cobra.Command{Hidden: true})
 	command.AddCommand(newCapabilitiesCommand(bootstrap, &options))
+	command.AddCommand(newRunCommand(bootstrap, &options))
 	return command
 }
 
@@ -86,6 +90,108 @@ func newCapabilitiesCommand(bootstrap Bootstrapper, options *rootOptions) *cobra
 			return presenter.WriteJSON(cmd.OutOrStdout(), envelope)
 		},
 	}
+}
+
+func newRunCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Command {
+	var inputJSON string
+	var inputFile string
+
+	command := &cobra.Command{
+		Use:   "run <capability-id>",
+		Short: "Run a capability by its stable ID",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			input, err := parseRunInput(cmd, inputJSON, inputFile)
+			if err != nil {
+				return err
+			}
+
+			application, err := bootstrap(appOptions(*options))
+			if err != nil {
+				return err
+			}
+
+			pipeline := execution.NewPipeline(application.Registry)
+			envelope, err := pipeline.Execute(cmd.Context(), execution.ExecuteRequest{
+				CapabilityID:  args[0],
+				Input:         input,
+				Profile:       application.Config.Profile,
+				CorrelationID: options.correlationID,
+			})
+			if err != nil {
+				return err
+			}
+
+			return presenter.WriteJSON(cmd.OutOrStdout(), envelope)
+		},
+	}
+
+	command.Flags().StringVar(&inputJSON, "input-json", "", "Complete capability input object as inline JSON")
+	command.Flags().StringVar(&inputFile, "input-file", "", "Path to a JSON file containing the complete capability input object")
+	return command
+}
+
+func parseRunInput(cmd *cobra.Command, inputJSON string, inputFile string) (capability.Input, error) {
+	sources := 0
+	if inputJSON != "" {
+		sources++
+	}
+	if inputFile != "" {
+		sources++
+	}
+	stdinAvailable := runStdinAvailable(cmd)
+	if stdinAvailable {
+		sources++
+	}
+	if sources > 1 {
+		return nil, fmt.Errorf("run input must be provided by only one source")
+	}
+
+	switch {
+	case inputJSON != "":
+		return decodeRunInput([]byte(inputJSON))
+	case inputFile != "":
+		content, err := os.ReadFile(inputFile) // #nosec G304 -- users explicitly choose the generic run input file
+		if err != nil {
+			return nil, err
+		}
+		return decodeRunInput(content)
+	case stdinAvailable:
+		content, err := io.ReadAll(cmd.InOrStdin())
+		if err != nil {
+			return nil, err
+		}
+		return decodeRunInput(content)
+	default:
+		return capability.Input{}, nil
+	}
+}
+
+func decodeRunInput(content []byte) (capability.Input, error) {
+	var input capability.Input
+	if err := json.Unmarshal(content, &input); err != nil {
+		return nil, err
+	}
+	if input == nil {
+		return nil, fmt.Errorf("run input must be a JSON object")
+	}
+	return input, nil
+}
+
+func runStdinAvailable(cmd *cobra.Command) bool {
+	input := cmd.InOrStdin()
+	if input == nil {
+		return false
+	}
+	if input != os.Stdin {
+		return true
+	}
+
+	stat, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return stat.Mode()&os.ModeCharDevice == 0
 }
 
 func appOptions(options rootOptions) app.Options {

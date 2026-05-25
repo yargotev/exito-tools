@@ -2,7 +2,9 @@ package cli_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
@@ -51,7 +53,7 @@ func TestRootHelpPaths(t *testing.T) {
 				}
 			}
 
-			for _, forbidden := range []string{"orders", "geo", " run ", "\"ok\"", "\"data\"", "\"error\""} {
+			for _, forbidden := range []string{"orders", "geo", "\"ok\"", "\"data\"", "\"error\""} {
 				if strings.Contains(strings.ToLower(rendered), forbidden) {
 					t.Fatalf("help output unexpectedly contains %q\n%s", forbidden, rendered)
 				}
@@ -235,5 +237,177 @@ func TestCapabilitiesCommandWiresBootFlagsIntoApplicationOptions(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "\"profile\":\"prod\"") {
 		t.Fatalf("output should include selected profile\n%s", stdout.String())
+	}
+}
+
+func TestRunCommandExecutesCapabilityWithInlineJSON(t *testing.T) {
+	t.Parallel()
+
+	builder := registry.NewBuilder()
+	var gotRequest capability.ExecutionRequest
+	if err := builder.RegisterExecutable(capability.Executable{
+		Definition: capability.Definition{ID: "orders.get"},
+		Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
+			gotRequest = request
+			return capability.ExecutionResult{Data: map[string]any{"orderId": request.Input["id"]}}, nil
+		},
+	}); err != nil {
+		t.Fatalf("RegisterExecutable() error = %v", err)
+	}
+
+	root := clisurface.NewRoot(func(options app.Options) (*app.Application, error) {
+		return &app.Application{
+			Config:   config.Effective{Profile: options.Config.Profile},
+			Registry: builder.Finalize(),
+		}, nil
+	})
+
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stdout)
+	root.SetArgs([]string{"--profile", "prod", "--correlation-id", "corr-123", "run", "orders.get", "--input-json", `{"id":"A123"}`})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if gotRequest.Input["id"] != "A123" {
+		t.Fatalf("handler input id = %#v, want A123", gotRequest.Input["id"])
+	}
+	if gotRequest.Context.Profile != "prod" {
+		t.Fatalf("handler profile = %q, want prod", gotRequest.Context.Profile)
+	}
+	if gotRequest.Context.CorrelationID != "corr-123" {
+		t.Fatalf("handler correlation ID = %q, want corr-123", gotRequest.Context.CorrelationID)
+	}
+
+	var got struct {
+		OK   bool `json:"ok"`
+		Data struct {
+			OrderID string `json:"orderId"`
+		} `json:"data"`
+		Meta struct {
+			RequestID     string `json:"requestId"`
+			CorrelationID string `json:"correlationId"`
+			Profile       string `json:"profile"`
+			CapabilityID  string `json:"capabilityId"`
+			DurationMS    int64  `json:"durationMs"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("run output is not JSON: %v\n%s", err, stdout.String())
+	}
+	if !got.OK {
+		t.Fatalf("ok = false, want true\n%s", stdout.String())
+	}
+	if got.Data.OrderID != "A123" {
+		t.Fatalf("data.orderId = %q, want A123", got.Data.OrderID)
+	}
+	if got.Meta.RequestID == "" || got.Meta.CorrelationID != "corr-123" || got.Meta.Profile != "prod" || got.Meta.CapabilityID != "orders.get" || got.Meta.DurationMS < 0 {
+		t.Fatalf("unexpected metadata: %#v", got.Meta)
+	}
+}
+
+func TestRunCommandAcceptsInputFileAndStdin(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		args func(t *testing.T) []string
+		in   string
+		want string
+	}{
+		{
+			name: "input file",
+			args: func(t *testing.T) []string {
+				t.Helper()
+				path := t.TempDir() + "/input.json"
+				if err := os.WriteFile(path, []byte(`{"id":"file-123"}`), 0o600); err != nil {
+					t.Fatalf("WriteFile() error = %v", err)
+				}
+				return []string{"run", "orders.get", "--input-file", path}
+			},
+			want: "file-123",
+		},
+		{
+			name: "stdin",
+			args: func(t *testing.T) []string { return []string{"run", "orders.get"} },
+			in:   `{"id":"stdin-123"}`,
+			want: "stdin-123",
+		},
+	}
+
+	for _, tt := range tests {
+		tc := tt
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			builder := registry.NewBuilder()
+			if err := builder.RegisterExecutable(capability.Executable{
+				Definition: capability.Definition{ID: "orders.get"},
+				Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
+					return capability.ExecutionResult{Data: map[string]any{"orderId": request.Input["id"]}}, nil
+				},
+			}); err != nil {
+				t.Fatalf("RegisterExecutable() error = %v", err)
+			}
+
+			root := clisurface.NewRoot(func(options app.Options) (*app.Application, error) {
+				return &app.Application{Config: config.Effective{Profile: "staging"}, Registry: builder.Finalize()}, nil
+			})
+			var stdout bytes.Buffer
+			root.SetOut(&stdout)
+			root.SetErr(&stdout)
+			if tc.in != "" {
+				root.SetIn(strings.NewReader(tc.in))
+			}
+			root.SetArgs(tc.args(t))
+
+			if err := root.Execute(); err != nil {
+				t.Fatalf("Execute() error = %v", err)
+			}
+			if !strings.Contains(stdout.String(), tc.want) {
+				t.Fatalf("run output missing %q\n%s", tc.want, stdout.String())
+			}
+		})
+	}
+}
+
+func TestRunCommandReturnsCapabilityNotFoundEnvelope(t *testing.T) {
+	t.Parallel()
+
+	root := clisurface.NewRoot(func(options app.Options) (*app.Application, error) {
+		return &app.Application{Config: config.Effective{Profile: "staging"}, Registry: registry.NewBuilder().Finalize()}, nil
+	})
+
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stdout)
+	root.SetArgs([]string{"run", "missing.example"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	var got struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+		Meta struct {
+			CapabilityID string `json:"capabilityId"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("run output is not JSON: %v\n%s", err, stdout.String())
+	}
+	if got.OK {
+		t.Fatalf("ok = true, want false")
+	}
+	if got.Error.Code != "CAPABILITY_NOT_FOUND" {
+		t.Fatalf("error.code = %q, want CAPABILITY_NOT_FOUND", got.Error.Code)
+	}
+	if got.Meta.CapabilityID != "missing.example" {
+		t.Fatalf("meta.capabilityId = %q, want missing.example", got.Meta.CapabilityID)
 	}
 }
