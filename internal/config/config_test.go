@@ -84,6 +84,103 @@ func TestResolveProfilePrecedence(t *testing.T) {
 	}
 }
 
+func TestYAMLDefaultProfileResolution(t *testing.T) {
+	t.Parallel()
+
+	t.Run("local YAML default profile is used as saved default", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		writeTextFile(t, filepath.Join(workDir, "exito.yaml"), "# Exito Tools\ndefaultProfile: prod\n")
+
+		resolved := resolveForTest(t, config.Options{
+			Env:     map[string]string{},
+			WorkDir: workDir,
+		})
+
+		if resolved.Profile != "prod" {
+			t.Fatalf("Profile = %q, want prod", resolved.Profile)
+		}
+		if resolved.ProfileSource != config.SourceSavedDefault {
+			t.Fatalf("ProfileSource = %q, want %q", resolved.ProfileSource, config.SourceSavedDefault)
+		}
+	})
+
+	t.Run("explicit profile overrides YAML default profile", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		writeTextFile(t, filepath.Join(workDir, "exito.yaml"), "defaultProfile: prod\n")
+
+		resolved := resolveForTest(t, config.Options{
+			Profile: "qa",
+			Env:     map[string]string{},
+			WorkDir: workDir,
+		})
+
+		if resolved.Profile != "qa" {
+			t.Fatalf("Profile = %q, want qa", resolved.Profile)
+		}
+		if resolved.ProfileSource != config.SourceExplicit {
+			t.Fatalf("ProfileSource = %q, want %q", resolved.ProfileSource, config.SourceExplicit)
+		}
+	})
+
+	t.Run("environment profile overrides YAML default profile", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		writeTextFile(t, filepath.Join(workDir, "exito.yaml"), "defaultProfile: prod\n")
+
+		resolved := resolveForTest(t, config.Options{
+			Env:     map[string]string{"EXITO_PROFILE": "dev"},
+			WorkDir: workDir,
+		})
+
+		if resolved.Profile != "dev" {
+			t.Fatalf("Profile = %q, want dev", resolved.Profile)
+		}
+		if resolved.ProfileSource != config.SourceEnvironment {
+			t.Fatalf("ProfileSource = %q, want %q", resolved.ProfileSource, config.SourceEnvironment)
+		}
+	})
+
+	t.Run("quoted YAML default profile allows inline comments", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		writeTextFile(t, filepath.Join(workDir, "exito.yaml"), "defaultProfile: 'prod' # team default\n")
+
+		resolved := resolveForTest(t, config.Options{
+			Env:     map[string]string{},
+			WorkDir: workDir,
+		})
+
+		if resolved.Profile != "prod" {
+			t.Fatalf("Profile = %q, want prod", resolved.Profile)
+		}
+	})
+
+	t.Run("blank YAML default profile falls back to staging", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		writeTextFile(t, filepath.Join(workDir, "exito.yaml"), "defaultProfile:   \n")
+
+		resolved := resolveForTest(t, config.Options{
+			Env:     map[string]string{},
+			WorkDir: workDir,
+		})
+
+		if resolved.Profile != config.DefaultProfile {
+			t.Fatalf("Profile = %q, want %q", resolved.Profile, config.DefaultProfile)
+		}
+		if resolved.ProfileSource != config.SourceDefault {
+			t.Fatalf("ProfileSource = %q, want %q", resolved.ProfileSource, config.SourceDefault)
+		}
+	})
+}
+
 func TestResolveConfigPathPrecedence(t *testing.T) {
 	t.Parallel()
 

@@ -1,5 +1,15 @@
 # Configuration
 
+## YAML configuration
+
+Exito Tools reads non-sensitive application settings from the selected YAML Configuration File. The supported foundation key is:
+
+```yaml
+defaultProfile: staging
+```
+
+`defaultProfile` stores the saved Default Profile used when neither `--profile` nor `EXITO_PROFILE` is set. Secrets and provider tokens must stay in environment variables or non-committed dotenv files, not YAML.
+
 ## Environment variables
 
 ### Geo

@@ -108,15 +108,21 @@ type CredentialLayer struct {
 	Path   string
 }
 
-// Resolve applies Exito Tools configuration precedence rules without parsing YAML configuration files.
+// Resolve applies Exito Tools configuration precedence rules.
 func Resolve(options Options) (Effective, error) {
 	resolvedOptions, err := normalizeOptions(options)
 	if err != nil {
 		return Effective{}, err
 	}
 
-	profile, profileSource := resolveProfile(resolvedOptions)
 	configPath, configSource, candidates := resolveConfigPath(resolvedOptions)
+	savedDefaultProfile, err := savedDefaultProfile(resolvedOptions, configPath)
+	if err != nil {
+		return Effective{}, err
+	}
+	resolvedOptions.SavedDefaultProfile = savedDefaultProfile
+
+	profile, profileSource := resolveProfile(resolvedOptions)
 	credentialLayers := credentialLayers(resolvedOptions.WorkDir, profile)
 	geoProvider, err := resolveGeoProvider(resolvedOptions.Env, credentialLayers)
 	if err != nil {
@@ -137,6 +143,67 @@ func Resolve(options Options) (Effective, error) {
 		GeoProvider:      geoProvider,
 		OrdersProvider:   ordersProvider,
 	}, nil
+}
+
+func savedDefaultProfile(options Options, configPath string) (string, error) {
+	if profile := strings.TrimSpace(options.SavedDefaultProfile); profile != "" {
+		return profile, nil
+	}
+	if strings.TrimSpace(configPath) == "" || !fileExists(configPath) {
+		return "", nil
+	}
+
+	profile, err := readDefaultProfile(configPath)
+	if err != nil {
+		return "", err
+	}
+	return profile, nil
+}
+
+func readDefaultProfile(path string) (string, error) {
+	file, err := os.Open(path) // #nosec G304 -- path comes from deterministic configuration path resolution.
+	if err != nil {
+		return "", fmt.Errorf("read configuration file %q: %w", path, err)
+	}
+	defer func() { _ = file.Close() }()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if key, value, ok := strings.Cut(line, ":"); ok && strings.TrimSpace(key) == "defaultProfile" {
+			return strings.TrimSpace(unquoteDotenvValue(stripInlineYAMLComment(value))), nil
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("scan configuration file %q: %w", path, err)
+	}
+
+	return "", nil
+}
+
+func stripInlineYAMLComment(value string) string {
+	inSingleQuote := false
+	inDoubleQuote := false
+	for index, r := range value {
+		switch r {
+		case '\'':
+			if !inDoubleQuote {
+				inSingleQuote = !inSingleQuote
+			}
+		case '"':
+			if !inSingleQuote {
+				inDoubleQuote = !inDoubleQuote
+			}
+		case '#':
+			if !inSingleQuote && !inDoubleQuote {
+				return strings.TrimSpace(value[:index])
+			}
+		}
+	}
+	return strings.TrimSpace(value)
 }
 
 func resolveGeoProvider(env map[string]string, layers []CredentialLayer) (GeoProvider, error) {
