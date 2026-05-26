@@ -413,3 +413,103 @@ func TestInputFormDoesNotSubmitEmptyRequiredStringField(t *testing.T) {
 		t.Fatalf("empty submit should keep the form active\n%s", view)
 	}
 }
+
+func TestResultFilterRefinesLoadedTaskDataWithoutReexecution(t *testing.T) {
+	t.Parallel()
+
+	executions := 0
+	builder := registry.NewBuilder()
+	if err := builder.RegisterExecutable(capability.Executable{
+		Definition: capability.Definition{
+			ID:         "orders.get",
+			Domain:     "orders",
+			Title:      "Get order",
+			Audiences:  []capability.Audience{capability.AudiencePeople},
+			Visibility: []capability.Visibility{capability.VisibilityCommandPalette},
+		},
+		Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
+			executions++
+			return capability.ExecutionResult{Data: map[string]any{
+				"id":     "A123",
+				"status": "ready",
+				"city":   "Bogota",
+			}}, nil
+		},
+	}); err != nil {
+		t.Fatalf("RegisterExecutable() error = %v", err)
+	}
+
+	var model tea.Model = tui.NewModel(&app.Application{Registry: builder.Finalize()})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	model, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatalf("Update(enter) command = nil, want execution command")
+	}
+	model, _ = model.Update(cmd())
+
+	view := model.(tui.Model).View()
+	for _, fragment := range []string{"Result", "- city: Bogota", "- id: A123", "- status: ready", "Press f to filter results."} {
+		if !strings.Contains(view, fragment) {
+			t.Fatalf("success result view missing %q\n%s", fragment, view)
+		}
+	}
+
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("ready")})
+
+	filteredView := model.(tui.Model).View()
+	for _, fragment := range []string{"Result Filter: ready", "- status: ready"} {
+		if !strings.Contains(filteredView, fragment) {
+			t.Fatalf("filtered result view missing %q\n%s", fragment, filteredView)
+		}
+	}
+	for _, hidden := range []string{"- city: Bogota", "- id: A123", "Command Palette"} {
+		if strings.Contains(filteredView, hidden) {
+			t.Fatalf("filtered result view should not contain %q\n%s", hidden, filteredView)
+		}
+	}
+	if executions != 1 {
+		t.Fatalf("executions = %d, want 1", executions)
+	}
+}
+
+func TestResultFilterEscClosesAndRestoresRows(t *testing.T) {
+	t.Parallel()
+
+	builder := registry.NewBuilder()
+	if err := builder.RegisterExecutable(capability.Executable{
+		Definition: capability.Definition{
+			ID:         "geo.geocode-address",
+			Domain:     "geo",
+			Title:      "Geocode address",
+			Audiences:  []capability.Audience{capability.AudiencePeople},
+			Visibility: []capability.Visibility{capability.VisibilityCommandPalette},
+		},
+		Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
+			return capability.ExecutionResult{Data: map[string]any{
+				"address": "CL 57",
+				"city":    "Bogota",
+			}}, nil
+		},
+	}); err != nil {
+		t.Fatalf("RegisterExecutable() error = %v", err)
+	}
+
+	var model tea.Model = tui.NewModel(&app.Application{Registry: builder.Finalize()})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	model, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model, _ = model.Update(cmd())
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("cl")})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+
+	view := model.(tui.Model).View()
+	for _, fragment := range []string{"- address: CL 57", "- city: Bogota", "Press f to filter results."} {
+		if !strings.Contains(view, fragment) {
+			t.Fatalf("view after closing result filter missing %q\n%s", fragment, view)
+		}
+	}
+	if strings.Contains(view, "Result Filter:") {
+		t.Fatalf("result filter should close on esc\n%s", view)
+	}
+}

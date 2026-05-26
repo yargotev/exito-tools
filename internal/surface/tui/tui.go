@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"reflect"
+	"sort"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -31,6 +33,7 @@ type Model struct {
 	paletteIndex   int
 	form           formState
 	task           taskState
+	resultFilter   resultFilterState
 }
 
 type taskStatus string
@@ -45,7 +48,13 @@ const (
 type taskState struct {
 	Status       taskStatus
 	CapabilityID string
+	Data         any
 	Error        *capability.StructuredError
+}
+
+type resultFilterState struct {
+	Active bool
+	Query  string
 }
 
 type actionExecutedMsg struct {
@@ -85,6 +94,10 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if m.resultFilter.Active {
+			return m.updateResultFilter(msg)
+		}
+
 		if m.form.Active {
 			return m.updateForm(msg)
 		}
@@ -100,6 +113,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.paletteOpen = true
 			m.paletteQuery = ""
 			m.paletteIndex = 0
+		case "f":
+			if len(resultRows(m.task.Data)) > 0 && m.task.Status == taskSuccess {
+				m.resultFilter = resultFilterState{Active: true}
+			}
 		}
 	case actionExecutedMsg:
 		if msg.err != nil {
@@ -115,11 +132,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.task.CapabilityID = msg.envelope.Meta.CapabilityID
 		if msg.envelope.OK {
 			m.task.Status = taskSuccess
+			if msg.envelope.Data != nil {
+				m.task.Data = *msg.envelope.Data
+			} else {
+				m.task.Data = nil
+			}
 			m.task.Error = nil
+			m.resultFilter = resultFilterState{}
 			return m, nil
 		}
 		m.task.Status = taskFailure
 		m.task.Error = msg.envelope.Error
+		m.task.Data = nil
+		m.resultFilter = resultFilterState{}
 	}
 
 	return m, nil
@@ -143,6 +168,7 @@ func (m Model) View() string {
 			fmt.Fprintf(&builder, "Running %s...\n", m.task.CapabilityID)
 		case taskSuccess:
 			fmt.Fprintf(&builder, "Success: %s\n", m.task.CapabilityID)
+			m.renderResultRows(&builder)
 		case taskFailure:
 			fmt.Fprintf(&builder, "Failure: %s\n", m.task.CapabilityID)
 			if m.task.Error != nil {
@@ -229,6 +255,24 @@ func (m Model) updatePalette(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) updateResultFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.resultFilter = resultFilterState{}
+	case tea.KeyCtrlC:
+		return m, tea.Quit
+	case tea.KeyBackspace:
+		if len(m.resultFilter.Query) > 0 {
+			runes := []rune(m.resultFilter.Query)
+			m.resultFilter.Query = string(runes[:len(runes)-1])
+		}
+	case tea.KeyRunes:
+		m.resultFilter.Query += string(msg.Runes)
+	}
+
+	return m, nil
+}
+
 func (m Model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEsc:
@@ -261,6 +305,10 @@ func (m Model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) startExecution(capabilityID string, input capability.Input) (tea.Model, tea.Cmd) {
 	m.task = taskState{Status: taskLoading, CapabilityID: capabilityID}
+	m.resultFilter = resultFilterState{}
+	m.paletteOpen = false
+	m.paletteQuery = ""
+	m.paletteIndex = 0
 	return m, m.executeAction(capabilityID, input)
 }
 
@@ -278,6 +326,81 @@ func (m Model) executeAction(capabilityID string, input capability.Input) tea.Cm
 		})
 		return actionExecutedMsg{envelope: envelope, err: err}
 	}
+}
+
+func (m Model) renderResultRows(builder *strings.Builder) {
+	rows := resultRows(m.task.Data)
+	if len(rows) == 0 {
+		return
+	}
+
+	builder.WriteString("\nResult\n")
+	if m.resultFilter.Active {
+		fmt.Fprintf(builder, "Result Filter: %s\n", m.resultFilter.Query)
+	}
+	for _, row := range filteredResultRows(rows, m.resultFilter.Query) {
+		fmt.Fprintf(builder, "- %s\n", row)
+	}
+	if m.resultFilter.Active {
+		builder.WriteString("Press esc to close result filter.\n")
+	} else {
+		builder.WriteString("Press f to filter results.\n")
+	}
+}
+
+func resultRows(data any) []string {
+	if data == nil {
+		return nil
+	}
+
+	value := reflect.ValueOf(data)
+	for value.Kind() == reflect.Pointer || value.Kind() == reflect.Interface {
+		if value.IsNil() {
+			return nil
+		}
+		value = value.Elem()
+	}
+
+	switch value.Kind() {
+	case reflect.Map:
+		return mapResultRows(value)
+	case reflect.Slice, reflect.Array:
+		rows := make([]string, 0, value.Len())
+		for index := 0; index < value.Len(); index++ {
+			rows = append(rows, fmt.Sprint(value.Index(index).Interface()))
+		}
+		return rows
+	default:
+		return []string{fmt.Sprint(data)}
+	}
+}
+
+func mapResultRows(value reflect.Value) []string {
+	keys := value.MapKeys()
+	sort.Slice(keys, func(i, j int) bool {
+		return fmt.Sprint(keys[i].Interface()) < fmt.Sprint(keys[j].Interface())
+	})
+
+	rows := make([]string, 0, len(keys))
+	for _, key := range keys {
+		rows = append(rows, fmt.Sprintf("%v: %v", key.Interface(), value.MapIndex(key).Interface()))
+	}
+	return rows
+}
+
+func filteredResultRows(rows []string, query string) []string {
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return rows
+	}
+
+	filtered := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if strings.Contains(strings.ToLower(row), query) {
+			filtered = append(filtered, row)
+		}
+	}
+	return filtered
 }
 
 // Run starts the Bubble Tea TUI program.
