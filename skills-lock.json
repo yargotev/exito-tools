@@ -1,6 +1,12 @@
 {
   "version": 1,
   "skills": {
+    "golang-spf13-cobra": {
+      "source": "samber/cc-skills-golang",
+      "sourceType": "github",
+      "skillPath": "skills/golang-spf13-cobra/SKILL.md",
+      "computedHash": "0642d6df8e2aa05c964b71fbffc6ed4a534ded619ae16720d62a8a4c2755f333"
+    },
     "grill-with-docs": {
       "source": "mattpocock/skills",
       "sourceType": "github",
