@@ -32,6 +32,9 @@ func TestBuilderLifecycle(t *testing.T) {
 					Risk:        capability.RiskReadOnly,
 					Audiences:   []capability.Audience{capability.AudienceAgents},
 					Visibility:  []capability.Visibility{capability.VisibilityCLI},
+					InputSchema: &capability.InputSchema{Fields: []capability.InputField{
+						{Name: "id", Type: capability.InputTypeString, Required: true, Description: "Identifier."},
+					}},
 				}
 
 				if err := builder.Register(definition); err != nil {
@@ -51,6 +54,7 @@ func TestBuilderLifecycle(t *testing.T) {
 
 				got[0].Title = "mutated outside registry"
 				got[0].Audiences[0] = capability.AudiencePeople
+				got[0].InputSchema.Fields[0].Name = "mutated"
 				again := finalized.All()
 				if !reflect.DeepEqual(again[0], definition) {
 					t.Fatalf("All() should return a defensive copy, got %#v want %#v", again[0], definition)

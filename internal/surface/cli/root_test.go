@@ -122,6 +122,9 @@ func TestCapabilitiesCommandEmitsInventoryEnvelope(t *testing.T) {
 		Risk:        capability.RiskReadOnly,
 		Audiences:   []capability.Audience{capability.AudienceAgents, capability.AudiencePeople},
 		Visibility:  []capability.Visibility{capability.VisibilityCLI, capability.VisibilityCommandPalette},
+		InputSchema: &capability.InputSchema{Fields: []capability.InputField{
+			{Name: "id", Type: capability.InputTypeString, Required: true, Description: "Identifier."},
+		}},
 	}); err != nil {
 		t.Fatalf("Register() error = %v", err)
 	}
@@ -188,6 +191,13 @@ func TestCapabilitiesCommandEmitsInventoryEnvelope(t *testing.T) {
 	}
 	if len(capabilityGot.Visibility) != 2 || capabilityGot.Visibility[0] != capability.VisibilityCLI || capabilityGot.Visibility[1] != capability.VisibilityCommandPalette {
 		t.Fatalf("capability visibility = %#v, want cli and command-palette", capabilityGot.Visibility)
+	}
+	if capabilityGot.InputSchema == nil || len(capabilityGot.InputSchema.Fields) != 1 {
+		t.Fatalf("capability input schema = %#v, want one field", capabilityGot.InputSchema)
+	}
+	field := capabilityGot.InputSchema.Fields[0]
+	if field.Name != "id" || field.Type != capability.InputTypeString || !field.Required || field.Description != "Identifier." {
+		t.Fatalf("capability input field = %#v, want string required id", field)
 	}
 }
 

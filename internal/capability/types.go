@@ -36,6 +36,35 @@ const (
 	VisibilityCommandPalette Visibility = "command-palette"
 )
 
+// InputType declares a neutral input field type that surfaces can adapt into flags, forms, or validation.
+type InputType string
+
+const (
+	// InputTypeString marks a textual input value.
+	InputTypeString InputType = "string"
+	// InputTypeNumber marks a numeric input value.
+	InputTypeNumber InputType = "number"
+	// InputTypeBoolean marks a boolean input value.
+	InputTypeBoolean InputType = "boolean"
+	// InputTypeObject marks a nested object input value.
+	InputTypeObject InputType = "object"
+	// InputTypeArray marks a list input value.
+	InputTypeArray InputType = "array"
+)
+
+// InputField describes one schema-shaped Capability input field.
+type InputField struct {
+	Name        string    `json:"name"`
+	Type        InputType `json:"type"`
+	Required    bool      `json:"required,omitempty"`
+	Description string    `json:"description,omitempty"`
+}
+
+// InputSchema describes the complete neutral input object accepted by a Capability.
+type InputSchema struct {
+	Fields []InputField `json:"fields,omitempty"`
+}
+
 // Definition is the shared metadata skeleton for a capability.
 type Definition struct {
 	ID                   string       `json:"id"`
@@ -47,6 +76,7 @@ type Definition struct {
 	RequiresConfirmation bool         `json:"requiresConfirmation,omitempty"`
 	Audiences            []Audience   `json:"audiences,omitempty"`
 	Visibility           []Visibility `json:"visibility,omitempty"`
+	InputSchema          *InputSchema `json:"inputSchema,omitempty"`
 }
 
 // Input is a neutral, schema-shaped object supplied to a Capability execution.

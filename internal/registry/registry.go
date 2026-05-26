@@ -104,7 +104,18 @@ func cloneEntry(entry capability.Executable) capability.Executable {
 func cloneDefinition(definition capability.Definition) capability.Definition {
 	definition.Audiences = cloneSlice(definition.Audiences)
 	definition.Visibility = cloneSlice(definition.Visibility)
+	definition.InputSchema = cloneInputSchema(definition.InputSchema)
 	return definition
+}
+
+func cloneInputSchema(schema *capability.InputSchema) *capability.InputSchema {
+	if schema == nil {
+		return nil
+	}
+
+	cloned := *schema
+	cloned.Fields = cloneSlice(schema.Fields)
+	return &cloned
 }
 
 func cloneSlice[T any](values []T) []T {
