@@ -68,7 +68,45 @@ func TestPipelineExecutesRegisteredCapability(t *testing.T) {
 	if !ok || data["orderId"] != "123" {
 		t.Fatalf("Data = %#v, want orderId 123", envelope.Data)
 	}
-	assertMeta(t, envelope.Meta, "req_test", "corr-123", "staging", "orders.get", 1500)
+	assertMeta(t, envelope.Meta, "corr-123", "orders.get")
+}
+
+func TestPipelineValidatesCapabilityInputSchema(t *testing.T) {
+	t.Parallel()
+
+	handlerCalled := false
+	reg := registryWithExecutable(t, capability.Executable{
+		Definition: capability.Definition{
+			ID: "orders.get",
+			InputSchema: &capability.InputSchema{Fields: []capability.InputField{
+				{Name: "id", Type: capability.InputTypeString, Required: true},
+			}},
+		},
+		Handler: func(context.Context, capability.ExecutionRequest) (capability.ExecutionResult, error) {
+			handlerCalled = true
+			return capability.ExecutionResult{Data: map[string]any{"unreachable": true}}, nil
+		},
+	})
+
+	envelope, err := deterministicPipeline(reg).Execute(context.Background(), execution.ExecuteRequest{
+		CapabilityID: "orders.get",
+		Input:        capability.Input{},
+		Profile:      "staging",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if handlerCalled {
+		t.Fatalf("handler was called for invalid input")
+	}
+	if envelope.OK {
+		t.Fatalf("OK = true, want false")
+	}
+	if envelope.Error == nil || envelope.Error.Code != execution.ErrorInvalidInput {
+		t.Fatalf("Error = %#v, want %s", envelope.Error, execution.ErrorInvalidInput)
+	}
+	assertMeta(t, envelope.Meta, "", "orders.get")
 }
 
 func TestPipelinePreservesStructuredError(t *testing.T) {
@@ -98,7 +136,7 @@ func TestPipelinePreservesStructuredError(t *testing.T) {
 	if envelope.Data != nil {
 		t.Fatalf("Data = %#v, want nil on failure", envelope.Data)
 	}
-	assertMeta(t, envelope.Meta, "req_test", "", "staging", "orders.get", 1500)
+	assertMeta(t, envelope.Meta, "", "orders.get")
 }
 
 func TestPipelineTranslatesUnknownError(t *testing.T) {
@@ -142,7 +180,7 @@ func TestPipelineReturnsCapabilityNotFound(t *testing.T) {
 	if envelope.Error == nil || envelope.Error.Code != execution.ErrorCapabilityNotFound {
 		t.Fatalf("Error = %#v, want %s", envelope.Error, execution.ErrorCapabilityNotFound)
 	}
-	assertMeta(t, envelope.Meta, "req_test", "corr-123", "staging", "missing.example", 1500)
+	assertMeta(t, envelope.Meta, "corr-123", "missing.example")
 }
 
 type testContextKey struct{}
@@ -177,22 +215,22 @@ func registryWithExecutable(t *testing.T, entry capability.Executable) registry.
 	return builder.Finalize()
 }
 
-func assertMeta(t *testing.T, got capability.EnvelopeMeta, requestID string, correlationID string, profile string, capabilityID string, durationMS int64) {
+func assertMeta(t *testing.T, got capability.EnvelopeMeta, correlationID string, capabilityID string) {
 	t.Helper()
 
-	if got.RequestID != requestID {
-		t.Fatalf("RequestID = %q, want %q", got.RequestID, requestID)
+	if got.RequestID != "req_test" {
+		t.Fatalf("RequestID = %q, want req_test", got.RequestID)
 	}
 	if got.CorrelationID != correlationID {
 		t.Fatalf("CorrelationID = %q, want %q", got.CorrelationID, correlationID)
 	}
-	if got.Profile != profile {
-		t.Fatalf("Profile = %q, want %q", got.Profile, profile)
+	if got.Profile != "staging" {
+		t.Fatalf("Profile = %q, want staging", got.Profile)
 	}
 	if got.CapabilityID != capabilityID {
 		t.Fatalf("CapabilityID = %q, want %q", got.CapabilityID, capabilityID)
 	}
-	if got.DurationMS != durationMS {
-		t.Fatalf("DurationMS = %d, want %d", got.DurationMS, durationMS)
+	if got.DurationMS != 1500 {
+		t.Fatalf("DurationMS = %d, want 1500", got.DurationMS)
 	}
 }

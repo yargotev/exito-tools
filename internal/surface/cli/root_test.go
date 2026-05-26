@@ -398,6 +398,60 @@ func TestRunCommandAcceptsInputFileAndStdin(t *testing.T) {
 	}
 }
 
+func TestRunCommandReturnsInvalidInputEnvelope(t *testing.T) {
+	t.Parallel()
+
+	builder := registry.NewBuilder()
+	if err := builder.RegisterExecutable(capability.Executable{
+		Definition: capability.Definition{
+			ID: "orders.get",
+			InputSchema: &capability.InputSchema{Fields: []capability.InputField{
+				{Name: "id", Type: capability.InputTypeString, Required: true},
+			}},
+		},
+		Handler: func(context.Context, capability.ExecutionRequest) (capability.ExecutionResult, error) {
+			return capability.ExecutionResult{Data: map[string]any{"unreachable": true}}, nil
+		},
+	}); err != nil {
+		t.Fatalf("RegisterExecutable() error = %v", err)
+	}
+
+	root := clisurface.NewRoot(func(options app.Options) (*app.Application, error) {
+		return &app.Application{Config: config.Effective{Profile: "staging"}, Registry: builder.Finalize()}, nil
+	})
+
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stdout)
+	root.SetArgs([]string{"run", "orders.get", "--input-json", `{}`})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	var got struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+		Meta struct {
+			CapabilityID string `json:"capabilityId"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("run output is not JSON: %v\n%s", err, stdout.String())
+	}
+	if got.OK {
+		t.Fatalf("ok = true, want false")
+	}
+	if got.Error.Code != "INVALID_INPUT" {
+		t.Fatalf("error.code = %q, want INVALID_INPUT", got.Error.Code)
+	}
+	if got.Meta.CapabilityID != "orders.get" {
+		t.Fatalf("meta.capabilityId = %q, want orders.get", got.Meta.CapabilityID)
+	}
+}
+
 func TestRunCommandReturnsCapabilityNotFoundEnvelope(t *testing.T) {
 	t.Parallel()
 

@@ -12,6 +12,7 @@ import (
 const (
 	ErrorCapabilityNotFound        = "CAPABILITY_NOT_FOUND"
 	ErrorCapabilityExecutionFailed = "CAPABILITY_EXECUTION_FAILED"
+	ErrorInvalidInput              = "INVALID_INPUT"
 )
 
 // Pipeline runs registered Capabilities through a shared surface-independent path.
@@ -75,6 +76,10 @@ func (p Pipeline) Execute(ctx context.Context, request ExecuteRequest) (capabili
 			Code:    ErrorCapabilityNotFound,
 			Message: "Capability not found.",
 		}), nil
+	}
+
+	if err := ValidateInput(request.Input, entry.Definition.InputSchema); err != nil {
+		return p.failureEnvelope(request, requestID, startedAt, structuredError(err)), nil
 	}
 
 	executionRequest := capability.ExecutionRequest{
