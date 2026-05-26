@@ -13,6 +13,7 @@ import (
 const (
 	ErrorCapabilityNotFound        = "CAPABILITY_NOT_FOUND"
 	ErrorCapabilityExecutionFailed = "CAPABILITY_EXECUTION_FAILED"
+	ErrorConfirmationRequired      = "CONFIRMATION_REQUIRED"
 	ErrorInvalidInput              = "INVALID_INPUT"
 )
 
@@ -61,6 +62,7 @@ type ExecuteRequest struct {
 	Input         capability.Input
 	Profile       string
 	CorrelationID string
+	Confirmed     bool
 }
 
 // Execute runs a registered Capability and returns a standard JSON Envelope-shaped result.
@@ -76,6 +78,13 @@ func (p Pipeline) Execute(ctx context.Context, request ExecuteRequest) (capabili
 		return p.failureEnvelope(request, requestID, startedAt, capability.StructuredError{
 			Code:    ErrorCapabilityNotFound,
 			Message: "Capability not found.",
+		}), nil
+	}
+
+	if entry.Definition.RequiresConfirmation && !request.Confirmed {
+		return p.failureEnvelope(request, requestID, startedAt, capability.StructuredError{
+			Code:    ErrorConfirmationRequired,
+			Message: "Capability requires explicit confirmation.",
 		}), nil
 	}
 

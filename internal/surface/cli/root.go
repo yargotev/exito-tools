@@ -260,6 +260,7 @@ func newOrdersGetCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Co
 func newRunCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Command {
 	var inputJSON string
 	var inputFile string
+	var confirmed bool
 
 	command := &cobra.Command{
 		Use:   "run <capability-id>",
@@ -282,6 +283,7 @@ func newRunCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Command 
 				Input:         input,
 				Profile:       application.Config.Profile,
 				CorrelationID: options.correlationID,
+				Confirmed:     confirmed,
 			})
 			if err != nil {
 				return err
@@ -293,6 +295,7 @@ func newRunCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Command 
 
 	command.Flags().StringVar(&inputJSON, "input-json", "", "Complete capability input object as inline JSON")
 	command.Flags().StringVar(&inputFile, "input-file", "", "Path to a JSON file containing the complete capability input object")
+	command.Flags().BoolVar(&confirmed, "confirm", false, "Explicitly confirm a confirmation-required capability")
 	return command
 }
 

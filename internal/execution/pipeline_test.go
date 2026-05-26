@@ -337,6 +337,68 @@ func TestPipelineReturnsCapabilityNotFound(t *testing.T) {
 	assertMeta(t, envelope.Meta, "corr-123", "missing.example")
 }
 
+func TestPipelineRejectsMissingConfirmation(t *testing.T) {
+	t.Parallel()
+
+	handlerCalled := false
+	reg := registryWithExecutable(t, capability.Executable{
+		Definition: capability.Definition{ID: "orders.cancel", RequiresConfirmation: true},
+		Handler: func(context.Context, capability.ExecutionRequest) (capability.ExecutionResult, error) {
+			handlerCalled = true
+			return capability.ExecutionResult{Data: map[string]any{"cancelled": true}}, nil
+		},
+	})
+
+	envelope, err := deterministicPipeline(reg).Execute(context.Background(), execution.ExecuteRequest{
+		CapabilityID: "orders.cancel",
+		Profile:      "staging",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if handlerCalled {
+		t.Fatalf("handler was called without confirmation")
+	}
+	if envelope.OK {
+		t.Fatalf("OK = true, want false")
+	}
+	if envelope.Error == nil || envelope.Error.Code != execution.ErrorConfirmationRequired {
+		t.Fatalf("Error = %#v, want %s", envelope.Error, execution.ErrorConfirmationRequired)
+	}
+	assertMeta(t, envelope.Meta, "", "orders.cancel")
+}
+
+func TestPipelineExecutesConfirmationRequiredCapabilityWhenConfirmed(t *testing.T) {
+	t.Parallel()
+
+	handlerCalled := false
+	reg := registryWithExecutable(t, capability.Executable{
+		Definition: capability.Definition{ID: "orders.cancel", RequiresConfirmation: true},
+		Handler: func(context.Context, capability.ExecutionRequest) (capability.ExecutionResult, error) {
+			handlerCalled = true
+			return capability.ExecutionResult{Data: map[string]any{"cancelled": true}}, nil
+		},
+	})
+
+	envelope, err := deterministicPipeline(reg).Execute(context.Background(), execution.ExecuteRequest{
+		CapabilityID: "orders.cancel",
+		Profile:      "staging",
+		Confirmed:    true,
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if !handlerCalled {
+		t.Fatalf("handler was not called with confirmation")
+	}
+	if !envelope.OK {
+		t.Fatalf("OK = false, want true: %#v", envelope.Error)
+	}
+	assertMeta(t, envelope.Meta, "", "orders.cancel")
+}
+
 type testContextKey struct{}
 
 func deterministicPipeline(reg registry.Registry) execution.Pipeline {

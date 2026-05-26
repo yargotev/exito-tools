@@ -683,6 +683,103 @@ func TestRunCommandReturnsCapabilityNotFoundEnvelope(t *testing.T) {
 	}
 }
 
+func TestRunCommandRequiresExplicitConfirmationForRiskyCapability(t *testing.T) {
+	t.Parallel()
+
+	builder := registry.NewBuilder()
+	handlerCalled := false
+	if err := builder.RegisterExecutable(capability.Executable{
+		Definition: capability.Definition{ID: "orders.cancel", RequiresConfirmation: true},
+		Handler: func(context.Context, capability.ExecutionRequest) (capability.ExecutionResult, error) {
+			handlerCalled = true
+			return capability.ExecutionResult{Data: map[string]any{"cancelled": true}}, nil
+		},
+	}); err != nil {
+		t.Fatalf("RegisterExecutable() error = %v", err)
+	}
+
+	root := clisurface.NewRoot(func(options app.Options) (*app.Application, error) {
+		return &app.Application{Config: config.Effective{Profile: "staging"}, Registry: builder.Finalize()}, nil
+	})
+
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stdout)
+	root.SetArgs([]string{"run", "orders.cancel"})
+
+	assertFailureExitCode(t, root.Execute())
+
+	if handlerCalled {
+		t.Fatalf("handler was called without --confirm")
+	}
+	var got struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+		Meta struct {
+			CapabilityID string `json:"capabilityId"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("run output is not JSON: %v\n%s", err, stdout.String())
+	}
+	if got.OK {
+		t.Fatalf("ok = true, want false")
+	}
+	if got.Error.Code != "CONFIRMATION_REQUIRED" {
+		t.Fatalf("error.code = %q, want CONFIRMATION_REQUIRED", got.Error.Code)
+	}
+	if got.Meta.CapabilityID != "orders.cancel" {
+		t.Fatalf("meta.capabilityId = %q, want orders.cancel", got.Meta.CapabilityID)
+	}
+}
+
+func TestRunCommandPassesExplicitConfirmation(t *testing.T) {
+	t.Parallel()
+
+	builder := registry.NewBuilder()
+	handlerCalled := false
+	if err := builder.RegisterExecutable(capability.Executable{
+		Definition: capability.Definition{ID: "orders.cancel", RequiresConfirmation: true},
+		Handler: func(context.Context, capability.ExecutionRequest) (capability.ExecutionResult, error) {
+			handlerCalled = true
+			return capability.ExecutionResult{Data: map[string]any{"cancelled": true}}, nil
+		},
+	}); err != nil {
+		t.Fatalf("RegisterExecutable() error = %v", err)
+	}
+
+	root := clisurface.NewRoot(func(options app.Options) (*app.Application, error) {
+		return &app.Application{Config: config.Effective{Profile: "staging"}, Registry: builder.Finalize()}, nil
+	})
+
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stdout)
+	root.SetArgs([]string{"run", "orders.cancel", "--confirm"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if !handlerCalled {
+		t.Fatalf("handler was not called with --confirm")
+	}
+	var got struct {
+		OK   bool `json:"ok"`
+		Data struct {
+			Cancelled bool `json:"cancelled"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("run output is not JSON: %v\n%s", err, stdout.String())
+	}
+	if !got.OK || !got.Data.Cancelled {
+		t.Fatalf("output = %#v, want successful cancellation result", got)
+	}
+}
+
 func assertFailureExitCode(t *testing.T, err error) {
 	t.Helper()
 
