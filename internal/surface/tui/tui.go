@@ -33,16 +33,18 @@ type Model struct {
 	paletteIndex   int
 	form           formState
 	task           taskState
+	taskCancel     context.CancelFunc
 	resultFilter   resultFilterState
 }
 
 type taskStatus string
 
 const (
-	taskIdle    taskStatus = ""
-	taskLoading taskStatus = "loading"
-	taskSuccess taskStatus = "success"
-	taskFailure taskStatus = "failure"
+	taskIdle      taskStatus = ""
+	taskLoading   taskStatus = "loading"
+	taskSuccess   taskStatus = "success"
+	taskFailure   taskStatus = "failure"
+	taskCancelled taskStatus = "cancelled"
 )
 
 type taskState struct {
@@ -94,6 +96,10 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if m.task.Status == taskLoading && msg.Type == tea.KeyEsc {
+			return m.cancelTask(), nil
+		}
+
 		if m.resultFilter.Active {
 			return m.updateResultFilter(msg)
 		}
@@ -119,6 +125,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case actionExecutedMsg:
+		if m.task.Status == taskCancelled && m.task.CapabilityID == msg.envelope.Meta.CapabilityID {
+			return m, nil
+		}
+		m.taskCancel = nil
 		if msg.err != nil {
 			m.task = taskState{
 				Status: taskFailure,
@@ -174,6 +184,8 @@ func (m Model) View() string {
 			if m.task.Error != nil {
 				fmt.Fprintf(&builder, "%s: %s\n", m.task.Error.Code, m.task.Error.Message)
 			}
+		case taskCancelled:
+			fmt.Fprintf(&builder, "Cancelled: %s\n", m.task.CapabilityID)
 		}
 	}
 
@@ -309,14 +321,32 @@ func (m Model) startExecution(capabilityID string, input capability.Input) (tea.
 	m.paletteOpen = false
 	m.paletteQuery = ""
 	m.paletteIndex = 0
-	return m, m.executeAction(capabilityID, input)
-}
-
-func (m Model) executeAction(capabilityID string, input capability.Input) tea.Cmd {
 	ctx := m.ctx
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	ctx, cancel := context.WithCancel(ctx)
+	m.taskCancel = cancel
+	return m, m.executeAction(ctx, capabilityID, input)
+}
+
+func (m Model) cancelTask() Model {
+	if m.taskCancel != nil {
+		m.taskCancel()
+	}
+	m.taskCancel = nil
+	m.task.Status = taskCancelled
+	m.task.Data = nil
+	m.task.Error = nil
+	m.form = formState{}
+	m.paletteOpen = false
+	m.paletteQuery = ""
+	m.paletteIndex = 0
+	m.resultFilter = resultFilterState{}
+	return m
+}
+
+func (m Model) executeAction(ctx context.Context, capabilityID string, input capability.Input) tea.Cmd {
 	return func() tea.Msg {
 		pipeline := execution.NewPipeline(m.registry)
 		envelope, err := pipeline.Execute(ctx, execution.ExecuteRequest{

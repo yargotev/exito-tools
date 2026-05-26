@@ -513,3 +513,61 @@ func TestResultFilterEscClosesAndRestoresRows(t *testing.T) {
 		t.Fatalf("result filter should close on esc\n%s", view)
 	}
 }
+
+func TestLoadingTaskEscCancelsContextAndRendersCancelledState(t *testing.T) {
+	t.Parallel()
+
+	contextCancelled := false
+	builder := registry.NewBuilder()
+	if err := builder.RegisterExecutable(capability.Executable{
+		Definition: capability.Definition{
+			ID:         "orders.get",
+			Domain:     "orders",
+			Title:      "Get order",
+			Audiences:  []capability.Audience{capability.AudiencePeople},
+			Visibility: []capability.Visibility{capability.VisibilityCommandPalette},
+		},
+		Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
+			select {
+			case <-ctx.Done():
+				contextCancelled = true
+				return capability.ExecutionResult{}, ctx.Err()
+			default:
+				return capability.ExecutionResult{Data: map[string]any{"id": "A123"}}, nil
+			}
+		},
+	}); err != nil {
+		t.Fatalf("RegisterExecutable() error = %v", err)
+	}
+
+	var model tea.Model = tui.NewModel(&app.Application{Registry: builder.Finalize()})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	model, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatalf("Update(enter) command = nil, want execution command")
+	}
+
+	model, cancelCmd := model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if cancelCmd != nil {
+		t.Fatalf("Update(esc) command = %#v, want nil while cancelling task", cancelCmd)
+	}
+	cancelledView := model.(tui.Model).View()
+	if !strings.Contains(cancelledView, "Cancelled: orders.get") {
+		t.Fatalf("cancelled view missing cancelled state\n%s", cancelledView)
+	}
+	if strings.Contains(cancelledView, "Command Palette") {
+		t.Fatalf("cancelled view should close the command palette\n%s", cancelledView)
+	}
+
+	model, _ = model.Update(cmd())
+	if !contextCancelled {
+		t.Fatalf("handler context was not cancelled")
+	}
+	lateView := model.(tui.Model).View()
+	if !strings.Contains(lateView, "Cancelled: orders.get") {
+		t.Fatalf("late completion should not replace cancelled state\n%s", lateView)
+	}
+	if strings.Contains(lateView, "Failure: orders.get") || strings.Contains(lateView, "Success: orders.get") {
+		t.Fatalf("late completion should not render success or failure\n%s", lateView)
+	}
+}
