@@ -30,6 +30,7 @@ const (
 	SourceEnvironment  Source = "environment"
 	SourceLocalProject Source = "local-project"
 	SourceUserConfig   Source = "user-config"
+	SourceConfigFile   Source = "config-file"
 	SourceSavedDefault Source = "saved-default"
 	SourceDefault      Source = "default"
 	SourceDotenv       Source = "dotenv"
@@ -124,11 +125,15 @@ func Resolve(options Options) (Effective, error) {
 
 	profile, profileSource := resolveProfile(resolvedOptions)
 	credentialLayers := credentialLayers(resolvedOptions.WorkDir, profile)
-	geoProvider, err := resolveGeoProvider(resolvedOptions.Env, credentialLayers)
+	yamlProviders, err := readYAMLProfileProviders(configPath, profile)
 	if err != nil {
 		return Effective{}, err
 	}
-	ordersProvider, err := resolveOrdersProvider(resolvedOptions.Env, credentialLayers)
+	geoProvider, err := resolveGeoProvider(resolvedOptions.Env, credentialLayers, yamlProviders.GeoBaseURL)
+	if err != nil {
+		return Effective{}, err
+	}
+	ordersProvider, err := resolveOrdersProvider(resolvedOptions.Env, credentialLayers, yamlProviders.OrdersBaseURL)
 	if err != nil {
 		return Effective{}, err
 	}
@@ -206,8 +211,8 @@ func stripInlineYAMLComment(value string) string {
 	return strings.TrimSpace(value)
 }
 
-func resolveGeoProvider(env map[string]string, layers []CredentialLayer) (GeoProvider, error) {
-	provider, err := resolveProvider(env, layers, envGeoBaseURL, envGeoToken)
+func resolveGeoProvider(env map[string]string, layers []CredentialLayer, yamlBaseURL string) (GeoProvider, error) {
+	provider, err := resolveProvider(env, layers, envGeoBaseURL, envGeoToken, yamlBaseURL)
 	if err != nil {
 		return GeoProvider{}, err
 	}
@@ -215,8 +220,8 @@ func resolveGeoProvider(env map[string]string, layers []CredentialLayer) (GeoPro
 	return GeoProvider(provider), nil
 }
 
-func resolveOrdersProvider(env map[string]string, layers []CredentialLayer) (OrdersProvider, error) {
-	provider, err := resolveProvider(env, layers, envOrdersBaseURL, envOrdersToken)
+func resolveOrdersProvider(env map[string]string, layers []CredentialLayer, yamlBaseURL string) (OrdersProvider, error) {
+	provider, err := resolveProvider(env, layers, envOrdersBaseURL, envOrdersToken, yamlBaseURL)
 	if err != nil {
 		return OrdersProvider{}, err
 	}
@@ -233,7 +238,7 @@ type provider struct {
 	Configured    bool   `json:"configured"`
 }
 
-func resolveProvider(env map[string]string, layers []CredentialLayer, baseURLKey string, tokenKey string) (provider, error) {
+func resolveProvider(env map[string]string, layers []CredentialLayer, baseURLKey string, tokenKey string, yamlBaseURL string) (provider, error) {
 	values := map[string]resolvedValue{}
 
 	for _, layer := range layers {
@@ -250,6 +255,7 @@ func resolveProvider(env map[string]string, layers []CredentialLayer, baseURLKey
 			setLayerValue(values, tokenKey, dotenv[tokenKey], SourceDotenv)
 		}
 	}
+	setLayerValue(values, baseURLKey, yamlBaseURL, SourceConfigFile)
 
 	baseURL := values[baseURLKey]
 	token := values[tokenKey]
@@ -262,6 +268,95 @@ func resolveProvider(env map[string]string, layers []CredentialLayer, baseURLKey
 		TokenSet:      token.Value != "",
 		Configured:    baseURL.Value != "" && token.Value != "",
 	}, nil
+}
+
+type yamlProfileProviders struct {
+	GeoBaseURL    string
+	OrdersBaseURL string
+}
+
+func readYAMLProfileProviders(path string, profile string) (yamlProfileProviders, error) {
+	if strings.TrimSpace(path) == "" || strings.TrimSpace(profile) == "" || !fileExists(path) {
+		return yamlProfileProviders{}, nil
+	}
+
+	file, err := os.Open(path) // #nosec G304 -- path comes from deterministic configuration path resolution.
+	if err != nil {
+		return yamlProfileProviders{}, fmt.Errorf("read configuration file %q: %w", path, err)
+	}
+	defer func() { _ = file.Close() }()
+
+	var providers yamlProfileProviders
+	inProfiles := false
+	inSelectedProfile := false
+	currentProvider := ""
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		raw := scanner.Text()
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+
+		indent := leadingSpaces(raw)
+		key, value, ok := yamlKeyValue(trimmed)
+		if !ok {
+			continue
+		}
+
+		switch indent {
+		case 0:
+			inProfiles = key == "profiles" && value == ""
+			inSelectedProfile = false
+			currentProvider = ""
+		case 2:
+			if !inProfiles {
+				continue
+			}
+			inSelectedProfile = key == profile && value == ""
+			currentProvider = ""
+		case 4:
+			if !inProfiles || !inSelectedProfile {
+				continue
+			}
+			if (key == "geo" || key == "orders") && value == "" {
+				currentProvider = key
+			} else {
+				currentProvider = ""
+			}
+		case 6:
+			if !inProfiles || !inSelectedProfile || currentProvider == "" {
+				continue
+			}
+			if key != "baseUrl" && key != "baseURL" {
+				continue
+			}
+			switch currentProvider {
+			case "geo":
+				providers.GeoBaseURL = value
+			case "orders":
+				providers.OrdersBaseURL = value
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return yamlProfileProviders{}, fmt.Errorf("scan configuration file %q: %w", path, err)
+	}
+
+	return providers, nil
+}
+
+func leadingSpaces(value string) int {
+	return len(value) - len(strings.TrimLeft(value, " "))
+}
+
+func yamlKeyValue(line string) (string, string, bool) {
+	key, value, ok := strings.Cut(line, ":")
+	if !ok {
+		return "", "", false
+	}
+	return strings.TrimSpace(unquoteDotenvValue(key)), strings.TrimSpace(unquoteDotenvValue(stripInlineYAMLComment(value))), true
 }
 
 type resolvedValue struct {

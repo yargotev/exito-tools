@@ -342,7 +342,7 @@ func TestResolveGeoProviderConfiguration(t *testing.T) {
 		t.Parallel()
 
 		resolved := resolveForTest(t, config.Options{
-			Env: map[string]string{
+			Env: map[string]string{ // #nosec G101 -- test-only fake tokens exercise environment-source precedence.
 				"EXITO_GEO_BASE_URL": " https://geo.example.test ",
 				"EXITO_GEO_TOKEN":    " secret-token ",
 			},
@@ -377,7 +377,7 @@ func TestResolveGeoProviderConfiguration(t *testing.T) {
 
 		resolved := resolveForTest(t, config.Options{
 			Profile: "staging",
-			Env: map[string]string{
+			Env: map[string]string{ // #nosec G101 -- test-only fake token exercises environment-source precedence.
 				"EXITO_GEO_TOKEN": "env-token",
 			},
 			WorkDir: workDir,
@@ -441,6 +441,134 @@ func TestResolveGeoProviderConfiguration(t *testing.T) {
 		}
 		if resolved.GeoProvider.TokenSource != config.SourceDefault {
 			t.Fatalf("GeoProvider.TokenSource = %q, want %q", resolved.GeoProvider.TokenSource, config.SourceDefault)
+		}
+	})
+}
+
+func TestResolveProviderBaseURLsFromYAMLProfiles(t *testing.T) {
+	t.Parallel()
+
+	t.Run("YAML profile base URLs configure providers with environment tokens", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		writeTextFile(t, filepath.Join(workDir, "exito.yaml"), `
+defaultProfile: staging
+profiles:
+  staging:
+    geo:
+      baseUrl: https://geo-yaml.example.test
+    orders:
+      baseUrl: https://orders-yaml.example.test
+`)
+
+		resolved := resolveForTest(t, config.Options{
+			Env: map[string]string{ // #nosec G101 -- test-only fake tokens exercise environment-source precedence.
+				"EXITO_GEO_TOKEN":    "geo-env-token",
+				"EXITO_ORDERS_TOKEN": "orders-env-token",
+			},
+			WorkDir: workDir,
+		})
+
+		if !resolved.GeoProvider.Configured || !resolved.OrdersProvider.Configured {
+			t.Fatalf("providers configured = geo:%v orders:%v, want both true", resolved.GeoProvider.Configured, resolved.OrdersProvider.Configured)
+		}
+		if resolved.GeoProvider.BaseURL != "https://geo-yaml.example.test" || resolved.GeoProvider.BaseURLSource != config.SourceConfigFile {
+			t.Fatalf("GeoProvider base = (%q,%q), want YAML config-file", resolved.GeoProvider.BaseURL, resolved.GeoProvider.BaseURLSource)
+		}
+		if resolved.OrdersProvider.BaseURL != "https://orders-yaml.example.test" || resolved.OrdersProvider.BaseURLSource != config.SourceConfigFile {
+			t.Fatalf("OrdersProvider base = (%q,%q), want YAML config-file", resolved.OrdersProvider.BaseURL, resolved.OrdersProvider.BaseURLSource)
+		}
+		if resolved.GeoProvider.Token != "geo-env-token" || resolved.OrdersProvider.Token != "orders-env-token" {
+			t.Fatalf("tokens should come from environment, got geo=%q orders=%q", resolved.GeoProvider.Token, resolved.OrdersProvider.Token)
+		}
+	})
+
+	t.Run("environment base URL overrides YAML profile base URL", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		writeTextFile(t, filepath.Join(workDir, "exito.yaml"), `
+profiles:
+  staging:
+    geo:
+      baseUrl: https://geo-yaml.example.test
+`)
+
+		resolved := resolveForTest(t, config.Options{
+			Env: map[string]string{ // #nosec G101 -- test-only fake token exercises environment-source precedence.
+				"EXITO_GEO_BASE_URL": "https://geo-env.example.test",
+				"EXITO_GEO_TOKEN":    "geo-env-token",
+			},
+			WorkDir: workDir,
+		})
+
+		if resolved.GeoProvider.BaseURL != "https://geo-env.example.test" {
+			t.Fatalf("GeoProvider.BaseURL = %q, want environment value", resolved.GeoProvider.BaseURL)
+		}
+		if resolved.GeoProvider.BaseURLSource != config.SourceEnvironment {
+			t.Fatalf("GeoProvider.BaseURLSource = %q, want %q", resolved.GeoProvider.BaseURLSource, config.SourceEnvironment)
+		}
+	})
+
+	t.Run("effective profile selects matching YAML profile", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		writeTextFile(t, filepath.Join(workDir, "exito.yaml"), `
+profiles:
+  staging:
+    geo:
+      baseUrl: https://geo-staging.example.test
+  prod:
+    geo:
+      baseUrl: https://geo-prod.example.test
+    orders:
+      baseUrl: https://orders-prod.example.test
+`)
+
+		resolved := resolveForTest(t, config.Options{
+			Profile: "prod",
+			Env: map[string]string{ // #nosec G101 -- test-only fake tokens exercise environment-source precedence.
+				"EXITO_GEO_TOKEN":    "geo-env-token",
+				"EXITO_ORDERS_TOKEN": "orders-env-token",
+			},
+			WorkDir: workDir,
+		})
+
+		if resolved.GeoProvider.BaseURL != "https://geo-prod.example.test" {
+			t.Fatalf("GeoProvider.BaseURL = %q, want prod YAML profile", resolved.GeoProvider.BaseURL)
+		}
+		if resolved.OrdersProvider.BaseURL != "https://orders-prod.example.test" {
+			t.Fatalf("OrdersProvider.BaseURL = %q, want prod YAML profile", resolved.OrdersProvider.BaseURL)
+		}
+	})
+
+	t.Run("YAML token-like keys are ignored", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		writeTextFile(t, filepath.Join(workDir, "exito.yaml"), `
+profiles:
+  staging:
+    geo:
+      baseUrl: https://geo-yaml.example.test
+      token: must-not-be-read
+    orders:
+      baseUrl: https://orders-yaml.example.test
+      token: must-not-be-read
+`)
+
+		resolved := resolveForTest(t, config.Options{
+			Env:     map[string]string{},
+			WorkDir: workDir,
+		})
+
+		if resolved.GeoProvider.Configured || resolved.OrdersProvider.Configured {
+			t.Fatalf("providers should remain unconfigured without environment/dotenv tokens")
+		}
+		if resolved.GeoProvider.Token != "" || resolved.OrdersProvider.Token != "" {
+			t.Fatalf("YAML token-like values must be ignored, got geo=%q orders=%q", resolved.GeoProvider.Token, resolved.OrdersProvider.Token)
 		}
 	})
 }
