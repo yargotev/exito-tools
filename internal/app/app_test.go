@@ -37,7 +37,7 @@ func TestNewResolvesConfigurationAtBoot(t *testing.T) {
 	}
 }
 
-func TestNewWiresOrdersGetCapability(t *testing.T) {
+func TestNewWiresBootCapabilities(t *testing.T) {
 	t.Parallel()
 
 	application, err := app.New(app.Options{Config: config.Options{Env: map[string]string{}}})
@@ -45,14 +45,24 @@ func TestNewWiresOrdersGetCapability(t *testing.T) {
 		t.Fatalf("app.New() error = %v", err)
 	}
 
-	entry, ok := application.Registry.Find("orders.get")
-	if !ok {
-		t.Fatalf("orders.get capability was not registered")
+	tests := []struct {
+		id     string
+		domain string
+	}{
+		{id: "orders.get", domain: "orders"},
+		{id: "geo.geocode-address", domain: "geo"},
 	}
-	if entry.Definition.Domain != "orders" {
-		t.Fatalf("Domain = %q, want orders", entry.Definition.Domain)
-	}
-	if entry.Handler == nil {
-		t.Fatalf("orders.get handler is nil")
+
+	for _, tt := range tests {
+		entry, ok := application.Registry.Find(tt.id)
+		if !ok {
+			t.Fatalf("%s capability was not registered", tt.id)
+		}
+		if entry.Definition.Domain != tt.domain {
+			t.Fatalf("%s domain = %q, want %s", tt.id, entry.Definition.Domain, tt.domain)
+		}
+		if entry.Handler == nil {
+			t.Fatalf("%s handler is nil", tt.id)
+		}
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/yargotev/exito-tools/internal/app"
 	"github.com/yargotev/exito-tools/internal/capability"
 	"github.com/yargotev/exito-tools/internal/config"
+	"github.com/yargotev/exito-tools/internal/domain/geo"
 	"github.com/yargotev/exito-tools/internal/domain/orders"
 	"github.com/yargotev/exito-tools/internal/registry"
 	clisurface "github.com/yargotev/exito-tools/internal/surface/cli"
@@ -488,6 +489,42 @@ func TestRunCommandExecutesBootstrappedOrdersGetCapability(t *testing.T) {
 	}
 	if got.Meta.CapabilityID != orders.CapabilityGetID {
 		t.Fatalf("meta.capabilityId = %q, want %s", got.Meta.CapabilityID, orders.CapabilityGetID)
+	}
+}
+
+func TestRunCommandExecutesBootstrappedGeoGeocodeAddressCapability(t *testing.T) {
+	t.Parallel()
+
+	root := clisurface.NewRoot(app.New)
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stdout)
+	root.SetArgs([]string{"run", geo.CapabilityGeocodeAddressID, "--input-json", `{"city":"Bogota","address":"CL 57 H SUR # 68 D - 75"}`})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	var got struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+		Meta struct {
+			CapabilityID string `json:"capabilityId"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("run output is not JSON: %v\n%s", err, stdout.String())
+	}
+	if got.OK {
+		t.Fatalf("ok = true, want false until Geo client is configured")
+	}
+	if got.Error.Code != geo.ErrorGeoNotConfigured {
+		t.Fatalf("error.code = %q, want %s", got.Error.Code, geo.ErrorGeoNotConfigured)
+	}
+	if got.Meta.CapabilityID != geo.CapabilityGeocodeAddressID {
+		t.Fatalf("meta.capabilityId = %q, want %s", got.Meta.CapabilityID, geo.CapabilityGeocodeAddressID)
 	}
 }
 
