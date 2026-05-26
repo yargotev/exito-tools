@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Define root CLI behavior.
+Define root CLI behavior and explicit domain command mappings.
 
 ## Requirements
 
@@ -23,12 +23,47 @@ The system MUST make `exito` without arguments show brief English help instead o
 - WHEN root help is rendered
 - THEN the output is text help rather than JSON Envelope output
 
-### Requirement: Root command preserves future discovery seams
+### Requirement: Root command advertises implemented commands
 
-The root command SHOULD expose CLI guidance without claiming deferred commands exist yet.
+The root command SHOULD expose CLI guidance for implemented commands without launching interactive behavior.
 
-#### Scenario: Deferred commands are not misrepresented
+#### Scenario: Implemented commands are visible
 
-- GIVEN this scaffold has no real business capability commands
+- GIVEN capabilities, generic run, Orders, and Geo commands are implemented
 - WHEN root help is shown
-- THEN the help avoids implying that Orders, Geo, `run`, or `capabilities` already work
+- THEN help may advertise `capabilities`, `run`, `orders`, and `geo`
+- AND the command still does not emit a JSON Envelope
+
+### Requirement: Geo geocode-address explicit command
+
+The CLI SHALL expose `exito geo geocode-address --city <city> --address <address>` as the explicit command for the `geo.geocode-address` Capability.
+
+#### Scenario: Command routes through shared execution
+
+- **WHEN** a user runs `exito geo geocode-address --city Bogota --address "CL 57 H SUR # 68 D - 75"`
+- **THEN** the CLI executes `geo.geocode-address` through the shared Pipeline
+- **AND** emits a standard JSON envelope containing `meta.capabilityId` set to `geo.geocode-address`
+
+#### Scenario: Required flags are enforced before execution
+
+- **WHEN** either `--city` or `--address` is omitted
+- **THEN** Cobra rejects the command before emitting a JSON envelope
+
+### Requirement: Orders get command is exposed explicitly
+
+The CLI Surface MUST expose `exito orders get --id <order-id>` as an explicit domain command for the `orders.get` Capability.
+
+#### Scenario: Orders get runs through the shared pipeline
+
+- GIVEN the Application has registered `orders.get`
+- WHEN a user runs `exito orders get --id A123`
+- THEN the command executes the `orders.get` Capability through the shared execution Pipeline
+- AND stdout contains a standard JSON Envelope
+- AND `meta.capabilityId` is `orders.get`
+
+#### Scenario: Orders get requires an ID flag
+
+- GIVEN the Orders get command is available
+- WHEN a user runs `exito orders get` without `--id`
+- THEN the command fails before execution
+- AND it does not emit a JSON success envelope

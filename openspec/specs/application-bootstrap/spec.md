@@ -2,25 +2,27 @@
 
 ## Purpose
 
-Define scaffold boot behavior.
+Define Go Application boot behavior and explicit wiring boundaries.
 
 ## Requirements
 
 ### Requirement: Runnable application bootstrap
 
-The system MUST build a runnable Go Application through explicit Application Wiring before real Operational Domains are required.
+The system MUST build a runnable Go Application through explicit Application Wiring and register implemented Operational Domain capabilities once their neutral contracts exist.
 
 #### Scenario: Root application boots the CLI surface
 
-- GIVEN the scaffold has been built
+- GIVEN the application has been built
 - WHEN a user runs `exito`
 - THEN the Application boots successfully and reaches the CLI Surface entrypoint
 
-#### Scenario: No real business domains are required yet
+#### Scenario: Orders and Geo capabilities are wired during boot
 
-- GIVEN the foundation slice is installed
-- WHEN the Application boots
-- THEN `orders.get` and `geo.geocode-address` remain deferred and do not block startup
+- GIVEN the Application boots successfully
+- WHEN application wiring finalizes the Capability Registry
+- THEN the registry contains `orders.get`
+- AND the registry contains `geo.geocode-address`
+- AND both registered entries have executable handlers
 
 ### Requirement: Foundation boundaries stay explicit
 
