@@ -147,6 +147,84 @@ func TestPipelinePreservesStructuredError(t *testing.T) {
 	assertMeta(t, envelope.Meta, "", "orders.get")
 }
 
+func TestPipelinePropagatesSuccessfulWarnings(t *testing.T) {
+	t.Parallel()
+
+	reg := registryWithExecutable(t, capability.Executable{
+		Definition: capability.Definition{ID: "orders.list"},
+		Handler: func(context.Context, capability.ExecutionRequest) (capability.ExecutionResult, error) {
+			return capability.ExecutionResult{
+				Data: map[string]any{"count": 1},
+				Warnings: []capability.StructuredWarning{
+					{
+						Code:    "PARTIAL_DATA",
+						Message: "Some records were omitted.",
+						Details: map[string]any{"omitted": 2},
+					},
+				},
+			}, nil
+		},
+	})
+
+	envelope, err := deterministicPipeline(reg).Execute(context.Background(), execution.ExecuteRequest{
+		CapabilityID: "orders.list",
+		Profile:      "staging",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if !envelope.OK {
+		t.Fatalf("OK = false, want true: %#v", envelope.Error)
+	}
+	if envelope.Data == nil {
+		t.Fatalf("Data is nil")
+	}
+	data, ok := (*envelope.Data).(map[string]any)
+	if !ok || data["count"] != 1 {
+		t.Fatalf("Data = %#v, want successful result", envelope.Data)
+	}
+	if len(envelope.Meta.Warnings) != 1 {
+		t.Fatalf("Warnings = %#v, want one warning", envelope.Meta.Warnings)
+	}
+	warning := envelope.Meta.Warnings[0]
+	if warning.Code != "PARTIAL_DATA" || warning.Message != "Some records were omitted." {
+		t.Fatalf("warning = %#v, want structured warning", warning)
+	}
+	if warning.Details["omitted"] != 2 {
+		t.Fatalf("warning details = %#v, want omitted=2", warning.Details)
+	}
+	assertMeta(t, envelope.Meta, "", "orders.list")
+}
+
+func TestPipelineFailureDoesNotExposeResultWarnings(t *testing.T) {
+	t.Parallel()
+
+	reg := registryWithExecutable(t, capability.Executable{
+		Definition: capability.Definition{ID: "orders.get"},
+		Handler: func(context.Context, capability.ExecutionRequest) (capability.ExecutionResult, error) {
+			return capability.ExecutionResult{
+				Warnings: []capability.StructuredWarning{{Code: "IGNORED", Message: "Ignored warning."}},
+			}, capability.StructuredError{Code: "ORDER_NOT_FOUND", Message: "Order not found."}
+		},
+	})
+
+	envelope, err := deterministicPipeline(reg).Execute(context.Background(), execution.ExecuteRequest{
+		CapabilityID: "orders.get",
+		Profile:      "staging",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if envelope.OK {
+		t.Fatalf("OK = true, want false")
+	}
+	if len(envelope.Meta.Warnings) != 0 {
+		t.Fatalf("Warnings = %#v, want none on failed execution", envelope.Meta.Warnings)
+	}
+}
+
 func TestPipelineTranslatesUnknownError(t *testing.T) {
 	t.Parallel()
 

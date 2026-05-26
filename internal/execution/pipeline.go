@@ -105,10 +105,12 @@ func (p Pipeline) Execute(ctx context.Context, request ExecuteRequest) (capabili
 
 	data := result.Data
 	metadata := NewMetadata(requestID, request.CorrelationID, startedAt, p.now())
+	meta := metadata.EnvelopeMeta(request.Profile, request.CapabilityID)
+	meta.Warnings = append([]capability.StructuredWarning(nil), result.Warnings...)
 	return capability.Envelope[any]{
 		OK:   true,
 		Data: &data,
-		Meta: metadata.EnvelopeMeta(request.Profile, request.CapabilityID),
+		Meta: meta,
 	}, nil
 }
 

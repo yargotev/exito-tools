@@ -98,7 +98,8 @@ type ExecutionRequest struct {
 
 // ExecutionResult is the format-neutral successful result returned by a Capability handler.
 type ExecutionResult struct {
-	Data any
+	Data     any
+	Warnings []StructuredWarning
 }
 
 // Handler runs a Capability use case without depending on an Interaction Surface.
@@ -116,6 +117,13 @@ type StructuredError struct {
 	Message string `json:"message"`
 }
 
+// StructuredWarning is a non-fatal machine-readable warning included in Envelope metadata.
+type StructuredWarning struct {
+	Code    string         `json:"code"`
+	Message string         `json:"message"`
+	Details map[string]any `json:"details,omitempty"`
+}
+
 // Error returns the stable message for Go error interoperability.
 func (e StructuredError) Error() string {
 	return e.Message
@@ -123,11 +131,12 @@ func (e StructuredError) Error() string {
 
 // EnvelopeMeta is the standard metadata container shared by CLI JSON envelopes.
 type EnvelopeMeta struct {
-	RequestID     string `json:"requestId"`
-	CorrelationID string `json:"correlationId,omitempty"`
-	Profile       string `json:"profile,omitempty"`
-	CapabilityID  string `json:"capabilityId,omitempty"`
-	DurationMS    int64  `json:"durationMs"`
+	RequestID     string              `json:"requestId"`
+	CorrelationID string              `json:"correlationId,omitempty"`
+	Profile       string              `json:"profile,omitempty"`
+	CapabilityID  string              `json:"capabilityId,omitempty"`
+	DurationMS    int64               `json:"durationMs"`
+	Warnings      []StructuredWarning `json:"warnings,omitempty"`
 }
 
 // Envelope is the shared JSON-envelope-shaped result skeleton.

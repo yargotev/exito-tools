@@ -44,3 +44,38 @@ func TestDefinitionOmitsAbsentInputSchema(t *testing.T) {
 		t.Fatalf("definition JSON should omit absent input schema: %s", string(content))
 	}
 }
+
+func TestEnvelopeMetaStructuredWarningsJSON(t *testing.T) {
+	t.Parallel()
+
+	envelope := capability.Envelope[map[string]bool]{
+		OK:   true,
+		Data: &map[string]bool{"partial": true},
+		Meta: capability.EnvelopeMeta{
+			RequestID:    "req_test",
+			DurationMS:   1,
+			CapabilityID: "orders.list",
+			Warnings: []capability.StructuredWarning{
+				{
+					Code:    "PARTIAL_DATA",
+					Message: "Some records were omitted.",
+					Details: map[string]any{
+						"omitted": float64(2),
+					},
+				},
+			},
+		},
+	}
+
+	content, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+
+	rendered := string(content)
+	for _, fragment := range []string{`"warnings"`, `"code":"PARTIAL_DATA"`, `"message":"Some records were omitted."`, `"details"`, `"omitted":2`} {
+		if !strings.Contains(rendered, fragment) {
+			t.Fatalf("warning JSON missing %s in %s", fragment, rendered)
+		}
+	}
+}
