@@ -17,6 +17,9 @@ const (
 
 	envGeoBaseURL = "EXITO_GEO_BASE_URL"
 	envGeoToken   = "EXITO_GEO_TOKEN" // #nosec G101 -- environment variable name, not a credential value.
+
+	envOrdersBaseURL = "EXITO_ORDERS_BASE_URL"
+	envOrdersToken   = "EXITO_ORDERS_TOKEN" // #nosec G101 -- environment variable name, not a credential value.
 )
 
 // Source identifies where a resolved value came from.
@@ -60,10 +63,25 @@ type Effective struct {
 
 	CredentialLayers []CredentialLayer
 	GeoProvider      GeoProvider
+	OrdersProvider   OrdersProvider
 }
 
 // GeoProvider contains the resolved Geo provider configuration.
 type GeoProvider struct {
+	BaseURL       string `json:"baseUrl,omitempty"`
+	BaseURLSource Source `json:"baseUrlSource,omitempty"`
+
+	// Token is intentionally omitted from JSON so secrets are not exposed by
+	// accidental envelope/debug serialization of Effective configuration.
+	Token       string `json:"-"`
+	TokenSource Source `json:"tokenSource,omitempty"`
+	TokenSet    bool   `json:"tokenSet"`
+
+	Configured bool `json:"configured"`
+}
+
+// OrdersProvider contains the resolved Orders provider configuration.
+type OrdersProvider struct {
 	BaseURL       string `json:"baseUrl,omitempty"`
 	BaseURLSource Source `json:"baseUrlSource,omitempty"`
 
@@ -104,6 +122,10 @@ func Resolve(options Options) (Effective, error) {
 	if err != nil {
 		return Effective{}, err
 	}
+	ordersProvider, err := resolveOrdersProvider(resolvedOptions.Env, credentialLayers)
+	if err != nil {
+		return Effective{}, err
+	}
 
 	return Effective{
 		Profile:          profile,
@@ -113,31 +135,59 @@ func Resolve(options Options) (Effective, error) {
 		ConfigCandidates: candidates,
 		CredentialLayers: credentialLayers,
 		GeoProvider:      geoProvider,
+		OrdersProvider:   ordersProvider,
 	}, nil
 }
 
 func resolveGeoProvider(env map[string]string, layers []CredentialLayer) (GeoProvider, error) {
+	provider, err := resolveProvider(env, layers, envGeoBaseURL, envGeoToken)
+	if err != nil {
+		return GeoProvider{}, err
+	}
+
+	return GeoProvider(provider), nil
+}
+
+func resolveOrdersProvider(env map[string]string, layers []CredentialLayer) (OrdersProvider, error) {
+	provider, err := resolveProvider(env, layers, envOrdersBaseURL, envOrdersToken)
+	if err != nil {
+		return OrdersProvider{}, err
+	}
+
+	return OrdersProvider(provider), nil
+}
+
+type provider struct {
+	BaseURL       string `json:"baseUrl,omitempty"`
+	BaseURLSource Source `json:"baseUrlSource,omitempty"`
+	Token         string `json:"-"`
+	TokenSource   Source `json:"tokenSource,omitempty"`
+	TokenSet      bool   `json:"tokenSet"`
+	Configured    bool   `json:"configured"`
+}
+
+func resolveProvider(env map[string]string, layers []CredentialLayer, baseURLKey string, tokenKey string) (provider, error) {
 	values := map[string]resolvedValue{}
 
 	for _, layer := range layers {
 		switch layer.Source {
 		case SourceEnvironment:
-			setLayerValue(values, envGeoBaseURL, env[envGeoBaseURL], SourceEnvironment)
-			setLayerValue(values, envGeoToken, env[envGeoToken], SourceEnvironment)
+			setLayerValue(values, baseURLKey, env[baseURLKey], SourceEnvironment)
+			setLayerValue(values, tokenKey, env[tokenKey], SourceEnvironment)
 		case SourceDotenv:
 			dotenv, err := readDotenvFile(layer.Path)
 			if err != nil {
-				return GeoProvider{}, err
+				return provider{}, err
 			}
-			setLayerValue(values, envGeoBaseURL, dotenv[envGeoBaseURL], SourceDotenv)
-			setLayerValue(values, envGeoToken, dotenv[envGeoToken], SourceDotenv)
+			setLayerValue(values, baseURLKey, dotenv[baseURLKey], SourceDotenv)
+			setLayerValue(values, tokenKey, dotenv[tokenKey], SourceDotenv)
 		}
 	}
 
-	baseURL := values[envGeoBaseURL]
-	token := values[envGeoToken]
+	baseURL := values[baseURLKey]
+	token := values[tokenKey]
 
-	return GeoProvider{
+	return provider{
 		BaseURL:       baseURL.Value,
 		BaseURLSource: sourceOrDefault(baseURL.Source),
 		Token:         token.Value,

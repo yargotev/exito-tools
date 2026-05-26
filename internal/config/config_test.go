@@ -370,6 +370,115 @@ func TestGeoProviderTokenIsOmittedFromEffectiveJSON(t *testing.T) {
 	}
 }
 
+func TestResolveOrdersProviderConfiguration(t *testing.T) {
+	t.Parallel()
+
+	t.Run("environment values configure orders provider", func(t *testing.T) {
+		t.Parallel()
+
+		resolved := resolveForTest(t, config.Options{
+			Env: map[string]string{
+				"EXITO_ORDERS_BASE_URL": " https://orders.example.test ",
+				"EXITO_ORDERS_TOKEN":    " provider-value ",
+			},
+		})
+
+		if !resolved.OrdersProvider.Configured {
+			t.Fatalf("OrdersProvider.Configured = false, want true")
+		}
+		if resolved.OrdersProvider.BaseURL != "https://orders.example.test" {
+			t.Fatalf("OrdersProvider.BaseURL = %q, want trimmed base URL", resolved.OrdersProvider.BaseURL)
+		}
+		if resolved.OrdersProvider.BaseURLSource != config.SourceEnvironment {
+			t.Fatalf("OrdersProvider.BaseURLSource = %q, want %q", resolved.OrdersProvider.BaseURLSource, config.SourceEnvironment)
+		}
+		if resolved.OrdersProvider.Token != "provider-value" {
+			t.Fatalf("OrdersProvider.Token = %q, want resolved token", resolved.OrdersProvider.Token)
+		}
+		if resolved.OrdersProvider.TokenSource != config.SourceEnvironment {
+			t.Fatalf("OrdersProvider.TokenSource = %q, want %q", resolved.OrdersProvider.TokenSource, config.SourceEnvironment)
+		}
+		if !resolved.OrdersProvider.TokenSet {
+			t.Fatalf("OrdersProvider.TokenSet = false, want true")
+		}
+	})
+
+	t.Run("process environment wins over profile dotenv and general dotenv", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		writeTextFile(t, filepath.Join(workDir, ".env.staging"), "EXITO_ORDERS_BASE_URL=https://profile-orders.example.test\nEXITO_ORDERS_TOKEN=profile-value\n")
+		writeTextFile(t, filepath.Join(workDir, ".env"), "EXITO_ORDERS_BASE_URL=https://general-orders.example.test\nEXITO_ORDERS_TOKEN=general-value\n")
+
+		resolved := resolveForTest(t, config.Options{
+			Profile: "staging",
+			Env: map[string]string{
+				"EXITO_ORDERS_TOKEN": "env-value",
+			},
+			WorkDir: workDir,
+		})
+
+		if resolved.OrdersProvider.BaseURL != "https://profile-orders.example.test" {
+			t.Fatalf("OrdersProvider.BaseURL = %q, want profile dotenv value", resolved.OrdersProvider.BaseURL)
+		}
+		if resolved.OrdersProvider.BaseURLSource != config.SourceDotenv {
+			t.Fatalf("OrdersProvider.BaseURLSource = %q, want %q", resolved.OrdersProvider.BaseURLSource, config.SourceDotenv)
+		}
+		if resolved.OrdersProvider.Token != "env-value" {
+			t.Fatalf("OrdersProvider.Token = %q, want environment value", resolved.OrdersProvider.Token)
+		}
+		if resolved.OrdersProvider.TokenSource != config.SourceEnvironment {
+			t.Fatalf("OrdersProvider.TokenSource = %q, want %q", resolved.OrdersProvider.TokenSource, config.SourceEnvironment)
+		}
+		if !resolved.OrdersProvider.Configured {
+			t.Fatalf("OrdersProvider.Configured = false, want true")
+		}
+	})
+
+	t.Run("missing token remains unconfigured without exposing a token", func(t *testing.T) {
+		t.Parallel()
+
+		resolved := resolveForTest(t, config.Options{
+			Env: map[string]string{"EXITO_ORDERS_BASE_URL": "https://orders.example.test"},
+		})
+
+		if resolved.OrdersProvider.Configured {
+			t.Fatalf("OrdersProvider.Configured = true, want false")
+		}
+		if resolved.OrdersProvider.TokenSet {
+			t.Fatalf("OrdersProvider.TokenSet = true, want false")
+		}
+		if resolved.OrdersProvider.Token != "" {
+			t.Fatalf("OrdersProvider.Token = %q, want empty", resolved.OrdersProvider.Token)
+		}
+		if resolved.OrdersProvider.TokenSource != config.SourceDefault {
+			t.Fatalf("OrdersProvider.TokenSource = %q, want %q", resolved.OrdersProvider.TokenSource, config.SourceDefault)
+		}
+	})
+}
+
+func TestOrdersProviderTokenIsOmittedFromEffectiveJSON(t *testing.T) {
+	t.Parallel()
+
+	resolved := resolveForTest(t, config.Options{
+		Env: map[string]string{
+			"EXITO_ORDERS_BASE_URL": "https://orders.example.test",
+			"EXITO_ORDERS_TOKEN":    "super-secret-provider-value",
+		},
+	})
+
+	encoded, err := json.Marshal(resolved)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if strings.Contains(string(encoded), "super-secret-provider-value") || strings.Contains(string(encoded), `"Token":`) {
+		t.Fatalf("encoded effective config exposed token: %s", string(encoded))
+	}
+	if !strings.Contains(string(encoded), `"OrdersProvider"`) && !strings.Contains(string(encoded), `"ordersProvider"`) {
+		t.Fatalf("encoded effective config should include orders provider metadata: %s", string(encoded))
+	}
+}
+
 type candidateWant struct {
 	source config.Source
 	path   string
