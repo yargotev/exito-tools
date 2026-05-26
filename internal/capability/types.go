@@ -98,8 +98,9 @@ type ExecutionRequest struct {
 
 // ExecutionResult is the format-neutral successful result returned by a Capability handler.
 type ExecutionResult struct {
-	Data     any
-	Warnings []StructuredWarning
+	Data       any
+	Warnings   []StructuredWarning
+	Pagination *PaginationMeta
 }
 
 // Handler runs a Capability use case without depending on an Interaction Surface.
@@ -124,6 +125,12 @@ type StructuredWarning struct {
 	Details map[string]any `json:"details,omitempty"`
 }
 
+// PaginationMeta is optional cursor-based metadata for paginated Capability results.
+type PaginationMeta struct {
+	NextCursor string `json:"nextCursor,omitempty"`
+	HasMore    bool   `json:"hasMore"`
+}
+
 // Error returns the stable message for Go error interoperability.
 func (e StructuredError) Error() string {
 	return e.Message
@@ -137,6 +144,7 @@ type EnvelopeMeta struct {
 	CapabilityID  string              `json:"capabilityId,omitempty"`
 	DurationMS    int64               `json:"durationMs"`
 	Warnings      []StructuredWarning `json:"warnings,omitempty"`
+	Pagination    *PaginationMeta     `json:"pagination,omitempty"`
 }
 
 // Envelope is the shared JSON-envelope-shaped result skeleton.

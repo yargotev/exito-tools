@@ -107,6 +107,10 @@ func (p Pipeline) Execute(ctx context.Context, request ExecuteRequest) (capabili
 	metadata := NewMetadata(requestID, request.CorrelationID, startedAt, p.now())
 	meta := metadata.EnvelopeMeta(request.Profile, request.CapabilityID)
 	meta.Warnings = append([]capability.StructuredWarning(nil), result.Warnings...)
+	if result.Pagination != nil {
+		pagination := *result.Pagination
+		meta.Pagination = &pagination
+	}
 	return capability.Envelope[any]{
 		OK:   true,
 		Data: &data,

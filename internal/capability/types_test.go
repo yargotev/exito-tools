@@ -79,3 +79,33 @@ func TestEnvelopeMetaStructuredWarningsJSON(t *testing.T) {
 		}
 	}
 }
+
+func TestEnvelopeMetaPaginationJSON(t *testing.T) {
+	t.Parallel()
+
+	envelope := capability.Envelope[map[string]int]{
+		OK:   true,
+		Data: &map[string]int{"count": 2},
+		Meta: capability.EnvelopeMeta{
+			RequestID:    "req_test",
+			DurationMS:   1,
+			CapabilityID: "orders.list",
+			Pagination: &capability.PaginationMeta{
+				NextCursor: "cursor_2",
+				HasMore:    true,
+			},
+		},
+	}
+
+	content, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+
+	rendered := string(content)
+	for _, fragment := range []string{`"pagination"`, `"nextCursor":"cursor_2"`, `"hasMore":true`} {
+		if !strings.Contains(rendered, fragment) {
+			t.Fatalf("pagination JSON missing %s in %s", fragment, rendered)
+		}
+	}
+}

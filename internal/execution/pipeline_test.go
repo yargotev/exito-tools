@@ -225,6 +225,74 @@ func TestPipelineFailureDoesNotExposeResultWarnings(t *testing.T) {
 	}
 }
 
+func TestPipelinePropagatesSuccessfulPagination(t *testing.T) {
+	t.Parallel()
+
+	reg := registryWithExecutable(t, capability.Executable{
+		Definition: capability.Definition{ID: "orders.list"},
+		Handler: func(context.Context, capability.ExecutionRequest) (capability.ExecutionResult, error) {
+			return capability.ExecutionResult{
+				Data:       []map[string]any{{"orderId": "A123"}},
+				Pagination: &capability.PaginationMeta{NextCursor: "cursor_2", HasMore: true},
+			}, nil
+		},
+	})
+
+	envelope, err := deterministicPipeline(reg).Execute(context.Background(), execution.ExecuteRequest{
+		CapabilityID: "orders.list",
+		Profile:      "staging",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if !envelope.OK {
+		t.Fatalf("OK = false, want true: %#v", envelope.Error)
+	}
+	if envelope.Data == nil {
+		t.Fatalf("Data is nil")
+	}
+	rows, ok := (*envelope.Data).([]map[string]any)
+	if !ok || len(rows) != 1 || rows[0]["orderId"] != "A123" {
+		t.Fatalf("Data = %#v, want paged result row", envelope.Data)
+	}
+	if envelope.Meta.Pagination == nil {
+		t.Fatalf("Pagination = nil, want metadata")
+	}
+	if envelope.Meta.Pagination.NextCursor != "cursor_2" || !envelope.Meta.Pagination.HasMore {
+		t.Fatalf("Pagination = %#v, want cursor_2 with hasMore", envelope.Meta.Pagination)
+	}
+	assertMeta(t, envelope.Meta, "", "orders.list")
+}
+
+func TestPipelineFailureDoesNotExposeResultPagination(t *testing.T) {
+	t.Parallel()
+
+	reg := registryWithExecutable(t, capability.Executable{
+		Definition: capability.Definition{ID: "orders.list"},
+		Handler: func(context.Context, capability.ExecutionRequest) (capability.ExecutionResult, error) {
+			return capability.ExecutionResult{
+				Pagination: &capability.PaginationMeta{NextCursor: "ignored", HasMore: true},
+			}, capability.StructuredError{Code: "ORDERS_UNAVAILABLE", Message: "Orders are unavailable."}
+		},
+	})
+
+	envelope, err := deterministicPipeline(reg).Execute(context.Background(), execution.ExecuteRequest{
+		CapabilityID: "orders.list",
+		Profile:      "staging",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if envelope.OK {
+		t.Fatalf("OK = true, want false")
+	}
+	if envelope.Meta.Pagination != nil {
+		t.Fatalf("Pagination = %#v, want nil on failed execution", envelope.Meta.Pagination)
+	}
+}
+
 func TestPipelineTranslatesUnknownError(t *testing.T) {
 	t.Parallel()
 

@@ -166,3 +166,14 @@ The system MUST model non-fatal warnings as structured metadata with stable code
 - THEN `meta.warnings[0].code` contains the stable warning code
 - AND `meta.warnings[0].message` contains the warning message
 - AND optional warning details are serialized under `meta.warnings[0].details`
+
+### Requirement: Envelope metadata supports pagination
+
+The system MUST model cursor-based pagination as optional structured Envelope metadata for list-style Capability results.
+
+#### Scenario: Pagination metadata serializes in metadata
+
+- GIVEN a JSON Envelope includes pagination metadata
+- WHEN the envelope is serialized
+- THEN `meta.pagination.nextCursor` contains the opaque cursor when one exists
+- AND `meta.pagination.hasMore` declares whether another page is available
