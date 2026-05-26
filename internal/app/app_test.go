@@ -1,10 +1,16 @@
 package app_test
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/yargotev/exito-tools/internal/app"
+	"github.com/yargotev/exito-tools/internal/capability"
 	"github.com/yargotev/exito-tools/internal/config"
+	"github.com/yargotev/exito-tools/internal/domain/geo"
+	"github.com/yargotev/exito-tools/internal/execution"
 )
 
 func TestNewResolvesConfigurationAtBoot(t *testing.T) {
@@ -64,5 +70,48 @@ func TestNewWiresBootCapabilities(t *testing.T) {
 		if entry.Handler == nil {
 			t.Fatalf("%s handler is nil", tt.id)
 		}
+	}
+}
+
+func TestNewWiresConfiguredGeoHTTPGeocoder(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/geocode-address" {
+			t.Fatalf("request path = %q, want /geocode-address", r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer token-123" {
+			t.Fatalf("Authorization = %q, want bearer token", r.Header.Get("Authorization"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"message":"ok","success":true,"data":{"latitude":"4.1","longitude":"-74.1","estado":"M","dirtrad":"NORMALIZED","barrio":"BARRIO","coddane":"11001"}}`))
+	}))
+	defer server.Close()
+
+	application, err := app.New(app.Options{Config: config.Options{Env: map[string]string{
+		"EXITO_GEO_BASE_URL": server.URL,
+		"EXITO_GEO_TOKEN":    "token-123",
+	}}})
+	if err != nil {
+		t.Fatalf("app.New() error = %v", err)
+	}
+
+	envelope, err := execution.NewPipeline(application.Registry).Execute(context.Background(), execution.ExecuteRequest{
+		CapabilityID: geo.CapabilityGeocodeAddressID,
+		Input:        capability.Input{"city": "Bogota", "address": "Avenida Siempre Viva"},
+		Profile:      application.Config.Profile,
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !envelope.OK {
+		t.Fatalf("OK = false, want true: %#v", envelope.Error)
+	}
+	got, ok := (*envelope.Data).(geo.GeocodeAddressResult)
+	if !ok {
+		t.Fatalf("Data = %T, want geo.GeocodeAddressResult", *envelope.Data)
+	}
+	if got.NormalizedAddress != "NORMALIZED" || got.DANECode != "11001" {
+		t.Fatalf("result = %#v, want mapped provider data", got)
 	}
 }

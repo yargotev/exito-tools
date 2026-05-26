@@ -35,6 +35,18 @@ Geocodes a city/address pair using the configured Geo provider and returns the n
 }
 ```
 
+
+## Provider Request
+
+When `EXITO_GEO_BASE_URL` and `EXITO_GEO_TOKEN` are configured, Exito Tools sends a `POST` request to `<EXITO_GEO_BASE_URL>/geocode-address` with a bearer token and JSON body:
+
+```json
+{
+  "city": "Bogota",
+  "address": "CL 57 H SUR # 68 D - 75"
+}
+```
+
 ## External Response Mapping
 
 | External field | Use Case Result field |

@@ -10,7 +10,9 @@ const (
 	CapabilityGeocodeAddressID = "geo.geocode-address"
 	DomainName                 = "geo"
 
-	ErrorGeoNotConfigured = "GEO_NOT_CONFIGURED"
+	ErrorGeoNotConfigured           = "GEO_NOT_CONFIGURED"
+	ErrorGeoProviderUnavailable     = "GEO_PROVIDER_UNAVAILABLE"
+	ErrorGeoProviderInvalidResponse = "GEO_PROVIDER_INVALID_RESPONSE"
 )
 
 // Location is the domain-owned location result for geocoding.
