@@ -50,13 +50,14 @@ func TestRootHelpPaths(t *testing.T) {
 				"Usage:",
 				"capabilities",
 				"orders",
+				"geo",
 			} {
 				if !strings.Contains(rendered, fragment) {
 					t.Fatalf("help output missing %q\n%s", fragment, rendered)
 				}
 			}
 
-			for _, forbidden := range []string{"geo", "\"ok\"", "\"data\"", "\"error\""} {
+			for _, forbidden := range []string{"\"ok\"", "\"data\"", "\"error\""} {
 				if strings.Contains(strings.ToLower(rendered), forbidden) {
 					t.Fatalf("help output unexpectedly contains %q\n%s", forbidden, rendered)
 				}
@@ -489,6 +490,76 @@ func TestRunCommandExecutesBootstrappedOrdersGetCapability(t *testing.T) {
 	}
 	if got.Meta.CapabilityID != orders.CapabilityGetID {
 		t.Fatalf("meta.capabilityId = %q, want %s", got.Meta.CapabilityID, orders.CapabilityGetID)
+	}
+}
+
+func TestGeoGeocodeAddressCommandRunsGeoCapability(t *testing.T) {
+	t.Parallel()
+
+	root := clisurface.NewRoot(app.New)
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stdout)
+	root.SetArgs([]string{"--profile", "prod", "--correlation-id", "corr-geo", "geo", "geocode-address", "--city", "Bogota", "--address", "CL 57 H SUR # 68 D - 75"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	var got struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+		Meta struct {
+			CorrelationID string `json:"correlationId"`
+			Profile       string `json:"profile"`
+			CapabilityID  string `json:"capabilityId"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("geo geocode-address output is not JSON: %v\n%s", err, stdout.String())
+	}
+	if got.OK {
+		t.Fatalf("ok = true, want false until Geo client is configured")
+	}
+	if got.Error.Code != geo.ErrorGeoNotConfigured {
+		t.Fatalf("error.code = %q, want %s", got.Error.Code, geo.ErrorGeoNotConfigured)
+	}
+	if got.Meta.CorrelationID != "corr-geo" || got.Meta.Profile != "prod" || got.Meta.CapabilityID != geo.CapabilityGeocodeAddressID {
+		t.Fatalf("unexpected metadata: %#v", got.Meta)
+	}
+}
+
+func TestGeoGeocodeAddressCommandRequiresCityAndAddress(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "missing city", args: []string{"geo", "geocode-address", "--address", "CL 57 H SUR # 68 D - 75"}},
+		{name: "missing address", args: []string{"geo", "geocode-address", "--city", "Bogota"}},
+	}
+
+	for _, tt := range tests {
+		tc := tt
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := clisurface.NewRoot(app.New)
+			var output bytes.Buffer
+			root.SetOut(&output)
+			root.SetErr(&output)
+			root.SetArgs(tc.args)
+
+			if err := root.Execute(); err == nil {
+				t.Fatalf("Execute() error = nil, want missing required flag error")
+			}
+			if strings.Contains(output.String(), "{\"ok\"") {
+				t.Fatalf("missing flag error should not emit JSON envelope\n%s", output.String())
+			}
+		})
 	}
 }
 

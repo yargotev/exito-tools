@@ -11,6 +11,7 @@ import (
 	"github.com/yargotev/exito-tools/internal/app"
 	"github.com/yargotev/exito-tools/internal/capability"
 	"github.com/yargotev/exito-tools/internal/config"
+	"github.com/yargotev/exito-tools/internal/domain/geo"
 	"github.com/yargotev/exito-tools/internal/domain/orders"
 	"github.com/yargotev/exito-tools/internal/execution"
 	"github.com/yargotev/exito-tools/internal/presenter"
@@ -61,6 +62,7 @@ func NewRoot(bootstrap Bootstrapper) *cobra.Command {
 	command.AddCommand(newCapabilitiesCommand(bootstrap, &options))
 	command.AddCommand(newRunCommand(bootstrap, &options))
 	command.AddCommand(newOrdersCommand(bootstrap, &options))
+	command.AddCommand(newGeoCommand(bootstrap, &options))
 	return command
 }
 
@@ -92,6 +94,54 @@ func newCapabilitiesCommand(bootstrap Bootstrapper, options *rootOptions) *cobra
 			return presenter.WriteJSON(cmd.OutOrStdout(), envelope)
 		},
 	}
+}
+
+func newGeoCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Command {
+	command := &cobra.Command{
+		Use:   "geo",
+		Short: "Run Geo Domain commands",
+	}
+	command.AddCommand(newGeoGeocodeAddressCommand(bootstrap, options))
+	return command
+}
+
+func newGeoGeocodeAddressCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Command {
+	var city string
+	var address string
+
+	command := &cobra.Command{
+		Use:   "geocode-address",
+		Short: "Geocode a city/address pair",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			application, err := bootstrap(appOptions(*options))
+			if err != nil {
+				return err
+			}
+
+			pipeline := execution.NewPipeline(application.Registry)
+			envelope, err := pipeline.Execute(cmd.Context(), execution.ExecuteRequest{
+				CapabilityID: geo.CapabilityGeocodeAddressID,
+				Input: capability.Input{
+					"city":    city,
+					"address": address,
+				},
+				Profile:       application.Config.Profile,
+				CorrelationID: options.correlationID,
+			})
+			if err != nil {
+				return err
+			}
+
+			return presenter.WriteJSON(cmd.OutOrStdout(), envelope)
+		},
+	}
+
+	command.Flags().StringVar(&city, "city", "", "City name accepted by the Geo provider")
+	command.Flags().StringVar(&address, "address", "", "Address to geocode")
+	_ = command.MarkFlagRequired("city")
+	_ = command.MarkFlagRequired("address")
+	return command
 }
 
 func newOrdersCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Command {
