@@ -216,7 +216,7 @@ func TestCommandPaletteExecutionRendersStructuredFailure(t *testing.T) {
 			Audiences:  []capability.Audience{capability.AudiencePeople},
 			Visibility: []capability.Visibility{capability.VisibilityCommandPalette},
 			InputSchema: &capability.InputSchema{Fields: []capability.InputField{
-				{Name: "id", Type: capability.InputTypeString, Required: true},
+				{Name: "id", Type: capability.InputTypeNumber, Required: true},
 			}},
 		},
 		Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
@@ -278,5 +278,138 @@ func TestCommandPaletteSelectionMovesWithArrowKeys(t *testing.T) {
 	}
 	if !strings.Contains(view, "  Get order (orders.get)") {
 		t.Fatalf("view should leave first action unselected\n%s", view)
+	}
+}
+
+func TestCommandPaletteActionWithRequiredStringInputOpensForm(t *testing.T) {
+	t.Parallel()
+
+	builder := registry.NewBuilder()
+	if err := builder.RegisterExecutable(capability.Executable{
+		Definition: capability.Definition{
+			ID:         "orders.get",
+			Domain:     "orders",
+			Title:      "Get order",
+			Audiences:  []capability.Audience{capability.AudiencePeople},
+			Visibility: []capability.Visibility{capability.VisibilityCommandPalette},
+			InputSchema: &capability.InputSchema{Fields: []capability.InputField{
+				{Name: "id", Type: capability.InputTypeString, Required: true},
+			}},
+		},
+		Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
+			t.Fatal("handler should not run before the form is submitted")
+			return capability.ExecutionResult{}, nil
+		},
+	}); err != nil {
+		t.Fatalf("RegisterExecutable() error = %v", err)
+	}
+
+	var model tea.Model = tui.NewModel(&app.Application{Registry: builder.Finalize()})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	model, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil {
+		t.Fatalf("Update(enter) command = %#v, want nil while form opens", cmd)
+	}
+
+	view := model.(tui.Model).View()
+	for _, fragment := range []string{"Input Form", "Action: orders.get", "> id:"} {
+		if !strings.Contains(view, fragment) {
+			t.Fatalf("form view missing %q\n%s", fragment, view)
+		}
+	}
+	if strings.Contains(view, "Command Palette") {
+		t.Fatalf("palette should close while form is active\n%s", view)
+	}
+}
+
+func TestInputFormSubmissionExecutesWithCollectedInput(t *testing.T) {
+	t.Parallel()
+
+	builder := registry.NewBuilder()
+	if err := builder.RegisterExecutable(capability.Executable{
+		Definition: capability.Definition{
+			ID:         "geo.geocode-address",
+			Domain:     "geo",
+			Title:      "Geocode address",
+			Audiences:  []capability.Audience{capability.AudiencePeople},
+			Visibility: []capability.Visibility{capability.VisibilityCommandPalette},
+			InputSchema: &capability.InputSchema{Fields: []capability.InputField{
+				{Name: "city", Type: capability.InputTypeString, Required: true},
+				{Name: "address", Type: capability.InputTypeString, Required: true},
+			}},
+		},
+		Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
+			if request.Input["city"] != "Bogota" {
+				t.Fatalf("city input = %#v, want Bogota", request.Input["city"])
+			}
+			if request.Input["address"] != "CL 57" {
+				t.Fatalf("address input = %#v, want CL 57", request.Input["address"])
+			}
+			return capability.ExecutionResult{Data: map[string]any{"success": true}}, nil
+		},
+	}); err != nil {
+		t.Fatalf("RegisterExecutable() error = %v", err)
+	}
+
+	var model tea.Model = tui.NewModel(&app.Application{Registry: builder.Finalize()})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Bogota")})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	view := model.(tui.Model).View()
+	if !strings.Contains(view, "> address:") {
+		t.Fatalf("form should advance to address field\n%s", view)
+	}
+
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("CL 57")})
+	model, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatalf("final field submit command = nil, want execution command")
+	}
+
+	loadingView := model.(tui.Model).View()
+	if !strings.Contains(loadingView, "Running geo.geocode-address...") {
+		t.Fatalf("loading view missing running state\n%s", loadingView)
+	}
+	if strings.Contains(loadingView, "Input Form") {
+		t.Fatalf("form should close after submit\n%s", loadingView)
+	}
+
+	model, _ = model.Update(cmd())
+	successView := model.(tui.Model).View()
+	if !strings.Contains(successView, "Success: geo.geocode-address") {
+		t.Fatalf("success view missing completed state\n%s", successView)
+	}
+}
+
+func TestInputFormDoesNotSubmitEmptyRequiredStringField(t *testing.T) {
+	t.Parallel()
+
+	builder := registry.NewBuilder()
+	if err := builder.Register(capability.Definition{
+		ID:         "orders.get",
+		Domain:     "orders",
+		Title:      "Get order",
+		Audiences:  []capability.Audience{capability.AudiencePeople},
+		Visibility: []capability.Visibility{capability.VisibilityCommandPalette},
+		InputSchema: &capability.InputSchema{Fields: []capability.InputField{
+			{Name: "id", Type: capability.InputTypeString, Required: true},
+		}},
+	}); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+
+	var model tea.Model = tui.NewModel(&app.Application{Registry: builder.Finalize()})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil {
+		t.Fatalf("empty field submit command = %#v, want nil", cmd)
+	}
+
+	view := model.(tui.Model).View()
+	if !strings.Contains(view, "Input Form") || !strings.Contains(view, "> id:") {
+		t.Fatalf("empty submit should keep the form active\n%s", view)
 	}
 }

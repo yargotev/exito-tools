@@ -29,6 +29,7 @@ type Model struct {
 	paletteOpen    bool
 	paletteQuery   string
 	paletteIndex   int
+	form           formState
 	task           taskState
 }
 
@@ -50,6 +51,14 @@ type taskState struct {
 type actionExecutedMsg struct {
 	envelope capability.Envelope[any]
 	err      error
+}
+
+type formState struct {
+	Active       bool
+	CapabilityID string
+	Fields       []capability.InputField
+	Values       []string
+	Index        int
 }
 
 // NewModel builds the initial TUI model from the bootstrapped application.
@@ -76,6 +85,10 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if m.form.Active {
+			return m.updateForm(msg)
+		}
+
 		if m.paletteOpen {
 			return m.updatePalette(msg)
 		}
@@ -138,6 +151,19 @@ func (m Model) View() string {
 		}
 	}
 
+	if m.form.Active {
+		builder.WriteString("\nInput Form\n")
+		fmt.Fprintf(&builder, "Action: %s\n", m.form.CapabilityID)
+		for index, field := range m.form.Fields {
+			prefix := " "
+			if index == m.form.Index {
+				prefix = ">"
+			}
+			fmt.Fprintf(&builder, "%s %s: %s\n", prefix, field.Name, m.form.Values[index])
+		}
+		builder.WriteString("Press enter to continue.\n")
+	}
+
 	if m.paletteOpen {
 		builder.WriteString("\nCommand Palette\n")
 		fmt.Fprintf(&builder, "Search: %s\n", m.paletteQuery)
@@ -172,8 +198,13 @@ func (m Model) updatePalette(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		selected := matches[m.clampedPaletteIndex(len(matches))]
 		m.paletteIndex = m.clampedPaletteIndex(len(matches))
-		m.task = taskState{Status: taskLoading, CapabilityID: selected.ID}
-		return m, m.executeAction(selected.ID)
+		if fields := requiredStringFields(selected); len(fields) > 0 {
+			m.paletteOpen = false
+			m.paletteQuery = ""
+			m.form = newFormState(selected.ID, fields)
+			return m, nil
+		}
+		return m.startExecution(selected.ID, capability.Input{})
 	case tea.KeyUp:
 		if m.paletteIndex > 0 {
 			m.paletteIndex--
@@ -198,7 +229,42 @@ func (m Model) updatePalette(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) executeAction(capabilityID string) tea.Cmd {
+func (m Model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.form = formState{}
+	case tea.KeyCtrlC:
+		return m, tea.Quit
+	case tea.KeyBackspace:
+		current := []rune(m.form.Values[m.form.Index])
+		if len(current) > 0 {
+			m.form.Values[m.form.Index] = string(current[:len(current)-1])
+		}
+	case tea.KeyRunes:
+		m.form.Values[m.form.Index] += string(msg.Runes)
+	case tea.KeyEnter:
+		if strings.TrimSpace(m.form.Values[m.form.Index]) == "" {
+			return m, nil
+		}
+		if m.form.Index < len(m.form.Fields)-1 {
+			m.form.Index++
+			return m, nil
+		}
+		input := m.form.input()
+		capabilityID := m.form.CapabilityID
+		m.form = formState{}
+		return m.startExecution(capabilityID, input)
+	}
+
+	return m, nil
+}
+
+func (m Model) startExecution(capabilityID string, input capability.Input) (tea.Model, tea.Cmd) {
+	m.task = taskState{Status: taskLoading, CapabilityID: capabilityID}
+	return m, m.executeAction(capabilityID, input)
+}
+
+func (m Model) executeAction(capabilityID string, input capability.Input) tea.Cmd {
 	ctx := m.ctx
 	if ctx == nil {
 		ctx = context.Background()
@@ -207,7 +273,7 @@ func (m Model) executeAction(capabilityID string) tea.Cmd {
 		pipeline := execution.NewPipeline(m.registry)
 		envelope, err := pipeline.Execute(ctx, execution.ExecuteRequest{
 			CapabilityID: capabilityID,
-			Input:        capability.Input{},
+			Input:        input,
 			Profile:      profileLabel(m.profile),
 		})
 		return actionExecutedMsg{envelope: envelope, err: err}
@@ -275,6 +341,36 @@ func (m Model) clampedPaletteIndex(length int) int {
 		return length - 1
 	}
 	return m.paletteIndex
+}
+
+func requiredStringFields(definition capability.Definition) []capability.InputField {
+	if definition.InputSchema == nil {
+		return nil
+	}
+	fields := make([]capability.InputField, 0, len(definition.InputSchema.Fields))
+	for _, field := range definition.InputSchema.Fields {
+		if field.Required && field.Type == capability.InputTypeString {
+			fields = append(fields, field)
+		}
+	}
+	return fields
+}
+
+func newFormState(capabilityID string, fields []capability.InputField) formState {
+	return formState{
+		Active:       true,
+		CapabilityID: capabilityID,
+		Fields:       fields,
+		Values:       make([]string, len(fields)),
+	}
+}
+
+func (f formState) input() capability.Input {
+	input := make(capability.Input, len(f.Fields))
+	for index, field := range f.Fields {
+		input[field.Name] = f.Values[index]
+	}
+	return input
 }
 
 func hasVisibility(definition capability.Definition, visibility capability.Visibility) bool {
