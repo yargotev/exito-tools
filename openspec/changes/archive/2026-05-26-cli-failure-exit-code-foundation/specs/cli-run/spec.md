@@ -1,6 +1,6 @@
-# Cli Run Specification
+# CLI Run Delta Specification
 
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Generic run command executes registered capabilities
 
@@ -21,25 +21,3 @@ The CLI Surface MUST expose `exito run <capability-id>` as a machine-readable co
 - THEN stdout contains a failed JSON Envelope
 - AND the structured error code is `CAPABILITY_NOT_FOUND`
 - AND the command returns a generic failure exit status
-
-### Requirement: Generic run command accepts complete JSON input objects
-
-The CLI Surface MUST adapt complete JSON input objects into neutral `capability.Input` for the generic run path.
-
-#### Scenario: Inline JSON input is accepted
-
-- GIVEN `--input-json` contains a JSON object
-- WHEN a user runs `exito run <capability-id> --input-json '{"id":"123"}'`
-- THEN the object is passed to the Capability handler
-
-#### Scenario: File JSON input is accepted
-
-- GIVEN `--input-file` points to a JSON object file
-- WHEN a user runs `exito run <capability-id> --input-file input.json`
-- THEN the object is passed to the Capability handler
-
-#### Scenario: Piped stdin JSON input is accepted
-
-- GIVEN stdin contains a JSON object
-- WHEN a user pipes it into `exito run <capability-id>`
-- THEN the object is passed to the Capability handler

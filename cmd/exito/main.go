@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"log"
+	"fmt"
 	"os"
 
 	"github.com/yargotev/exito-tools/internal/app"
@@ -15,6 +15,9 @@ func main() {
 	root.SetErr(os.Stderr)
 
 	if err := root.ExecuteContext(context.Background()); err != nil {
-		log.Fatal(err)
+		if !clisurface.IsExitError(err) {
+			_, _ = fmt.Fprintln(os.Stderr, err)
+		}
+		os.Exit(clisurface.ExitCode(err))
 	}
 }

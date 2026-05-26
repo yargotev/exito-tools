@@ -411,9 +411,7 @@ func TestOrdersGetCommandRunsOrdersGetCapability(t *testing.T) {
 	root.SetErr(&stdout)
 	root.SetArgs([]string{"--profile", "prod", "--correlation-id", "corr-123", "orders", "get", "--id", "A123"})
 
-	if err := root.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
+	assertFailureExitCode(t, root.Execute())
 
 	var got struct {
 		OK    bool `json:"ok"`
@@ -466,9 +464,7 @@ func TestRunCommandExecutesBootstrappedOrdersGetCapability(t *testing.T) {
 	root.SetErr(&stdout)
 	root.SetArgs([]string{"run", orders.CapabilityGetID, "--input-json", `{"id":"A123"}`})
 
-	if err := root.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
+	assertFailureExitCode(t, root.Execute())
 
 	var got struct {
 		OK    bool `json:"ok"`
@@ -502,9 +498,7 @@ func TestGeoGeocodeAddressCommandRunsGeoCapability(t *testing.T) {
 	root.SetErr(&stdout)
 	root.SetArgs([]string{"--profile", "prod", "--correlation-id", "corr-geo", "geo", "geocode-address", "--city", "Bogota", "--address", "CL 57 H SUR # 68 D - 75"})
 
-	if err := root.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
+	assertFailureExitCode(t, root.Execute())
 
 	var got struct {
 		OK    bool `json:"ok"`
@@ -572,9 +566,7 @@ func TestRunCommandExecutesBootstrappedGeoGeocodeAddressCapability(t *testing.T)
 	root.SetErr(&stdout)
 	root.SetArgs([]string{"run", geo.CapabilityGeocodeAddressID, "--input-json", `{"city":"Bogota","address":"CL 57 H SUR # 68 D - 75"}`})
 
-	if err := root.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
+	assertFailureExitCode(t, root.Execute())
 
 	var got struct {
 		OK    bool `json:"ok"`
@@ -626,9 +618,7 @@ func TestRunCommandReturnsInvalidInputEnvelope(t *testing.T) {
 	root.SetErr(&stdout)
 	root.SetArgs([]string{"run", "orders.get", "--input-json", `{}`})
 
-	if err := root.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
+	assertFailureExitCode(t, root.Execute())
 
 	var got struct {
 		OK    bool `json:"ok"`
@@ -665,9 +655,7 @@ func TestRunCommandReturnsCapabilityNotFoundEnvelope(t *testing.T) {
 	root.SetErr(&stdout)
 	root.SetArgs([]string{"run", "missing.example"})
 
-	if err := root.Execute(); err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
+	assertFailureExitCode(t, root.Execute())
 
 	var got struct {
 		OK    bool `json:"ok"`
@@ -689,5 +677,16 @@ func TestRunCommandReturnsCapabilityNotFoundEnvelope(t *testing.T) {
 	}
 	if got.Meta.CapabilityID != "missing.example" {
 		t.Fatalf("meta.capabilityId = %q, want missing.example", got.Meta.CapabilityID)
+	}
+}
+
+func assertFailureExitCode(t *testing.T, err error) {
+	t.Helper()
+
+	if err == nil {
+		t.Fatalf("Execute() error = nil, want failure exit code")
+	}
+	if got := clisurface.ExitCode(err); got != clisurface.ExitCodeFailure {
+		t.Fatalf("ExitCode(error) = %d, want %d (err: %v)", got, clisurface.ExitCodeFailure, err)
 	}
 }

@@ -133,7 +133,7 @@ func newGeoGeocodeAddressCommand(bootstrap Bootstrapper, options *rootOptions) *
 				return err
 			}
 
-			return presenter.WriteJSON(cmd.OutOrStdout(), envelope)
+			return writeExecutionEnvelope(cmd.OutOrStdout(), envelope)
 		},
 	}
 
@@ -177,7 +177,7 @@ func newOrdersGetCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Co
 				return err
 			}
 
-			return presenter.WriteJSON(cmd.OutOrStdout(), envelope)
+			return writeExecutionEnvelope(cmd.OutOrStdout(), envelope)
 		},
 	}
 
@@ -216,13 +216,23 @@ func newRunCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Command 
 				return err
 			}
 
-			return presenter.WriteJSON(cmd.OutOrStdout(), envelope)
+			return writeExecutionEnvelope(cmd.OutOrStdout(), envelope)
 		},
 	}
 
 	command.Flags().StringVar(&inputJSON, "input-json", "", "Complete capability input object as inline JSON")
 	command.Flags().StringVar(&inputFile, "input-file", "", "Path to a JSON file containing the complete capability input object")
 	return command
+}
+
+func writeExecutionEnvelope(w io.Writer, envelope capability.Envelope[any]) error {
+	if err := presenter.WriteJSON(w, envelope); err != nil {
+		return err
+	}
+	if !envelope.OK {
+		return ExitError{Code: ExitCodeFailure}
+	}
+	return nil
 }
 
 func parseRunInput(cmd *cobra.Command, inputJSON string, inputFile string) (capability.Input, error) {
