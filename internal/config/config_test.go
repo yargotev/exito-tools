@@ -1,8 +1,10 @@
 package config_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/yargotev/exito-tools/internal/config"
@@ -236,6 +238,138 @@ func TestResolveCredentialLayers(t *testing.T) {
 	}
 }
 
+func TestResolveGeoProviderConfiguration(t *testing.T) {
+	t.Parallel()
+
+	t.Run("environment values configure geo provider", func(t *testing.T) {
+		t.Parallel()
+
+		resolved := resolveForTest(t, config.Options{
+			Env: map[string]string{
+				"EXITO_GEO_BASE_URL": " https://geo.example.test ",
+				"EXITO_GEO_TOKEN":    " secret-token ",
+			},
+		})
+
+		if !resolved.GeoProvider.Configured {
+			t.Fatalf("GeoProvider.Configured = false, want true")
+		}
+		if resolved.GeoProvider.BaseURL != "https://geo.example.test" {
+			t.Fatalf("GeoProvider.BaseURL = %q, want trimmed base URL", resolved.GeoProvider.BaseURL)
+		}
+		if resolved.GeoProvider.BaseURLSource != config.SourceEnvironment {
+			t.Fatalf("GeoProvider.BaseURLSource = %q, want %q", resolved.GeoProvider.BaseURLSource, config.SourceEnvironment)
+		}
+		if resolved.GeoProvider.Token != "secret-token" {
+			t.Fatalf("GeoProvider.Token = %q, want resolved token", resolved.GeoProvider.Token)
+		}
+		if resolved.GeoProvider.TokenSource != config.SourceEnvironment {
+			t.Fatalf("GeoProvider.TokenSource = %q, want %q", resolved.GeoProvider.TokenSource, config.SourceEnvironment)
+		}
+		if !resolved.GeoProvider.TokenSet {
+			t.Fatalf("GeoProvider.TokenSet = false, want true")
+		}
+	})
+
+	t.Run("process environment wins over profile dotenv and general dotenv", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		writeTextFile(t, filepath.Join(workDir, ".env.staging"), "EXITO_GEO_BASE_URL=https://profile.example.test\nEXITO_GEO_TOKEN=profile-token\n")
+		writeTextFile(t, filepath.Join(workDir, ".env"), "EXITO_GEO_BASE_URL=https://general.example.test\nEXITO_GEO_TOKEN=general-token\n")
+
+		resolved := resolveForTest(t, config.Options{
+			Profile: "staging",
+			Env: map[string]string{
+				"EXITO_GEO_TOKEN": "env-token",
+			},
+			WorkDir: workDir,
+		})
+
+		if resolved.GeoProvider.BaseURL != "https://profile.example.test" {
+			t.Fatalf("GeoProvider.BaseURL = %q, want profile dotenv value", resolved.GeoProvider.BaseURL)
+		}
+		if resolved.GeoProvider.BaseURLSource != config.SourceDotenv {
+			t.Fatalf("GeoProvider.BaseURLSource = %q, want %q", resolved.GeoProvider.BaseURLSource, config.SourceDotenv)
+		}
+		if resolved.GeoProvider.Token != "env-token" {
+			t.Fatalf("GeoProvider.Token = %q, want environment value", resolved.GeoProvider.Token)
+		}
+		if resolved.GeoProvider.TokenSource != config.SourceEnvironment {
+			t.Fatalf("GeoProvider.TokenSource = %q, want %q", resolved.GeoProvider.TokenSource, config.SourceEnvironment)
+		}
+		if !resolved.GeoProvider.Configured {
+			t.Fatalf("GeoProvider.Configured = false, want true")
+		}
+	})
+
+	t.Run("general dotenv is used after profile dotenv", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		writeTextFile(t, filepath.Join(workDir, ".env"), "export EXITO_GEO_BASE_URL='https://general.example.test'\nEXITO_GEO_TOKEN=general-token\n")
+
+		resolved := resolveForTest(t, config.Options{
+			Profile: "staging",
+			Env:     map[string]string{},
+			WorkDir: workDir,
+		})
+
+		if resolved.GeoProvider.BaseURL != "https://general.example.test" {
+			t.Fatalf("GeoProvider.BaseURL = %q, want general dotenv value", resolved.GeoProvider.BaseURL)
+		}
+		if resolved.GeoProvider.Token != "general-token" {
+			t.Fatalf("GeoProvider.Token = %q, want general dotenv token", resolved.GeoProvider.Token)
+		}
+		if !resolved.GeoProvider.Configured {
+			t.Fatalf("GeoProvider.Configured = false, want true")
+		}
+	})
+
+	t.Run("missing token remains unconfigured without exposing a token", func(t *testing.T) {
+		t.Parallel()
+
+		resolved := resolveForTest(t, config.Options{
+			Env: map[string]string{"EXITO_GEO_BASE_URL": "https://geo.example.test"},
+		})
+
+		if resolved.GeoProvider.Configured {
+			t.Fatalf("GeoProvider.Configured = true, want false")
+		}
+		if resolved.GeoProvider.TokenSet {
+			t.Fatalf("GeoProvider.TokenSet = true, want false")
+		}
+		if resolved.GeoProvider.Token != "" {
+			t.Fatalf("GeoProvider.Token = %q, want empty", resolved.GeoProvider.Token)
+		}
+		if resolved.GeoProvider.TokenSource != config.SourceDefault {
+			t.Fatalf("GeoProvider.TokenSource = %q, want %q", resolved.GeoProvider.TokenSource, config.SourceDefault)
+		}
+	})
+}
+
+func TestGeoProviderTokenIsOmittedFromEffectiveJSON(t *testing.T) {
+	t.Parallel()
+
+	resolved := resolveForTest(t, config.Options{
+		Env: map[string]string{
+			"EXITO_GEO_BASE_URL": "https://geo.example.test",
+			"EXITO_GEO_TOKEN":    "super-secret-token",
+		},
+	})
+
+	encoded, err := json.Marshal(resolved)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if strings.Contains(string(encoded), "super-secret-token") || strings.Contains(string(encoded), `"Token":`) {
+		t.Fatalf("encoded effective config exposed token: %s", string(encoded))
+	}
+	if !strings.Contains(string(encoded), `"tokenSet":true`) {
+		t.Fatalf("encoded effective config should expose only token presence: %s", string(encoded))
+	}
+}
+
 type candidateWant struct {
 	source config.Source
 	path   string
@@ -279,6 +413,17 @@ func writeFile(t *testing.T, path string) {
 		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(path), err)
 	}
 	if err := os.WriteFile(path, []byte("placeholder: true\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", path, err)
+	}
+}
+
+func writeTextFile(t *testing.T, path string, content string) {
+	t.Helper()
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(path), err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("WriteFile(%q) error = %v", path, err)
 	}
 }

@@ -1,6 +1,8 @@
 package config
 
 import (
+	"bufio"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +14,9 @@ const (
 
 	envConfigPath = "EXITO_CONFIG"
 	envProfile    = "EXITO_PROFILE"
+
+	envGeoBaseURL = "EXITO_GEO_BASE_URL"
+	envGeoToken   = "EXITO_GEO_TOKEN" // #nosec G101 -- environment variable name, not a credential value.
 )
 
 // Source identifies where a resolved value came from.
@@ -54,6 +59,21 @@ type Effective struct {
 	ConfigCandidates []ConfigCandidate
 
 	CredentialLayers []CredentialLayer
+	GeoProvider      GeoProvider
+}
+
+// GeoProvider contains the resolved Geo provider configuration.
+type GeoProvider struct {
+	BaseURL       string `json:"baseUrl,omitempty"`
+	BaseURLSource Source `json:"baseUrlSource,omitempty"`
+
+	// Token is intentionally omitted from JSON so secrets are not exposed by
+	// accidental envelope/debug serialization of Effective configuration.
+	Token       string `json:"-"`
+	TokenSource Source `json:"tokenSource,omitempty"`
+	TokenSet    bool   `json:"tokenSet"`
+
+	Configured bool `json:"configured"`
 }
 
 // ConfigCandidate describes a configuration file candidate considered by the resolver.
@@ -63,14 +83,14 @@ type ConfigCandidate struct {
 	Exists bool
 }
 
-// CredentialLayer describes a possible source of sensitive values without reading them.
+// CredentialLayer describes a possible source of sensitive values.
 type CredentialLayer struct {
 	Source Source
 	Name   string
 	Path   string
 }
 
-// Resolve applies Exito Tools configuration precedence rules without parsing YAML or secrets.
+// Resolve applies Exito Tools configuration precedence rules without parsing YAML configuration files.
 func Resolve(options Options) (Effective, error) {
 	resolvedOptions, err := normalizeOptions(options)
 	if err != nil {
@@ -79,6 +99,11 @@ func Resolve(options Options) (Effective, error) {
 
 	profile, profileSource := resolveProfile(resolvedOptions)
 	configPath, configSource, candidates := resolveConfigPath(resolvedOptions)
+	credentialLayers := credentialLayers(resolvedOptions.WorkDir, profile)
+	geoProvider, err := resolveGeoProvider(resolvedOptions.Env, credentialLayers)
+	if err != nil {
+		return Effective{}, err
+	}
 
 	return Effective{
 		Profile:          profile,
@@ -86,8 +111,110 @@ func Resolve(options Options) (Effective, error) {
 		ConfigPath:       configPath,
 		ConfigSource:     configSource,
 		ConfigCandidates: candidates,
-		CredentialLayers: credentialLayers(resolvedOptions.WorkDir, profile),
+		CredentialLayers: credentialLayers,
+		GeoProvider:      geoProvider,
 	}, nil
+}
+
+func resolveGeoProvider(env map[string]string, layers []CredentialLayer) (GeoProvider, error) {
+	values := map[string]resolvedValue{}
+
+	for _, layer := range layers {
+		switch layer.Source {
+		case SourceEnvironment:
+			setLayerValue(values, envGeoBaseURL, env[envGeoBaseURL], SourceEnvironment)
+			setLayerValue(values, envGeoToken, env[envGeoToken], SourceEnvironment)
+		case SourceDotenv:
+			dotenv, err := readDotenvFile(layer.Path)
+			if err != nil {
+				return GeoProvider{}, err
+			}
+			setLayerValue(values, envGeoBaseURL, dotenv[envGeoBaseURL], SourceDotenv)
+			setLayerValue(values, envGeoToken, dotenv[envGeoToken], SourceDotenv)
+		}
+	}
+
+	baseURL := values[envGeoBaseURL]
+	token := values[envGeoToken]
+
+	return GeoProvider{
+		BaseURL:       baseURL.Value,
+		BaseURLSource: sourceOrDefault(baseURL.Source),
+		Token:         token.Value,
+		TokenSource:   sourceOrDefault(token.Source),
+		TokenSet:      token.Value != "",
+		Configured:    baseURL.Value != "" && token.Value != "",
+	}, nil
+}
+
+type resolvedValue struct {
+	Value  string
+	Source Source
+}
+
+func setLayerValue(values map[string]resolvedValue, key string, value string, source Source) {
+	if _, exists := values[key]; exists {
+		return
+	}
+	if trimmed := strings.TrimSpace(value); trimmed != "" {
+		values[key] = resolvedValue{Value: trimmed, Source: source}
+	}
+}
+
+func sourceOrDefault(source Source) Source {
+	if source == "" {
+		return SourceDefault
+	}
+	return source
+}
+
+func readDotenvFile(path string) (map[string]string, error) {
+	values := map[string]string{}
+	if strings.TrimSpace(path) == "" {
+		return values, nil
+	}
+
+	file, err := os.Open(path) // #nosec G304 -- path comes from deterministic credential layer locations.
+	if err != nil {
+		if os.IsNotExist(err) {
+			return values, nil
+		}
+		return nil, fmt.Errorf("read dotenv file %q: %w", path, err)
+	}
+	defer func() { _ = file.Close() }()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		values[key] = unquoteDotenvValue(strings.TrimSpace(value))
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("scan dotenv file %q: %w", path, err)
+	}
+
+	return values, nil
+}
+
+func unquoteDotenvValue(value string) string {
+	if len(value) < 2 {
+		return value
+	}
+	if (strings.HasPrefix(value, `"`) && strings.HasSuffix(value, `"`)) || (strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'")) {
+		return value[1 : len(value)-1]
+	}
+	return value
 }
 
 func normalizeOptions(options Options) (Options, error) {
