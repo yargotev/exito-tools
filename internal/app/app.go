@@ -26,7 +26,7 @@ func New(options Options) (*Application, error) {
 	}
 
 	builder := registry.NewBuilder()
-	if err := builder.RegisterExecutable(orders.NewGetCapability(orders.UnavailableGetter{})); err != nil {
+	if err := builder.RegisterExecutable(orders.NewGetCapability(ordersGetter(effectiveConfig))); err != nil {
 		return nil, err
 	}
 	if err := builder.RegisterExecutable(geo.NewGeocodeAddressCapability(geoGeocoder(effectiveConfig))); err != nil {
@@ -37,6 +37,17 @@ func New(options Options) (*Application, error) {
 		Config:   effectiveConfig,
 		Registry: builder.Finalize(),
 	}, nil
+}
+
+func ordersGetter(effectiveConfig config.Effective) orders.Getter {
+	if !effectiveConfig.OrdersProvider.Configured {
+		return orders.UnavailableGetter{}
+	}
+
+	return orders.NewHTTPGetter(orders.HTTPGetterConfig{
+		BaseURL: effectiveConfig.OrdersProvider.BaseURL,
+		Token:   effectiveConfig.OrdersProvider.Token,
+	}, nil)
 }
 
 func geoGeocoder(effectiveConfig config.Effective) geo.Geocoder {

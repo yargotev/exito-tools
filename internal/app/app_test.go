@@ -10,6 +10,7 @@ import (
 	"github.com/yargotev/exito-tools/internal/capability"
 	"github.com/yargotev/exito-tools/internal/config"
 	"github.com/yargotev/exito-tools/internal/domain/geo"
+	"github.com/yargotev/exito-tools/internal/domain/orders"
 	"github.com/yargotev/exito-tools/internal/execution"
 	"github.com/yargotev/exito-tools/internal/platform/httpclient"
 )
@@ -128,5 +129,62 @@ func TestNewWiresConfiguredGeoHTTPGeocoder(t *testing.T) {
 	}
 	if got.NormalizedAddress != "NORMALIZED" || got.DANECode != "11001" {
 		t.Fatalf("result = %#v, want mapped provider data", got)
+	}
+}
+
+func TestNewWiresConfiguredOrdersHTTPGetter(t *testing.T) {
+	t.Parallel()
+
+	var gotRequestID string
+	var gotCorrelationID string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotRequestID = r.Header.Get(httpclient.HeaderRequestID)
+		gotCorrelationID = r.Header.Get(httpclient.HeaderCorrelationID)
+		if r.URL.Path != "/orders/get" {
+			t.Fatalf("request path = %q, want /orders/get", r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer orders-token" {
+			t.Fatalf("Authorization = %q, want bearer token", r.Header.Get("Authorization"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"order":{"id":"A123","status":"created","createdAt":"2026-05-26T00:00:00Z"}}`))
+	}))
+	defer server.Close()
+
+	application, err := app.New(app.Options{Config: config.Options{Env: map[string]string{
+		"EXITO_ORDERS_BASE_URL": server.URL,
+		"EXITO_ORDERS_TOKEN":    "orders-token",
+	}}})
+	if err != nil {
+		t.Fatalf("app.New() error = %v", err)
+	}
+
+	envelope, err := execution.NewPipeline(
+		application.Registry,
+		execution.WithRequestIDGenerator(func() (string, error) { return "req_app_orders", nil }),
+	).Execute(context.Background(), execution.ExecuteRequest{
+		CapabilityID:  orders.CapabilityGetID,
+		Input:         capability.Input{"id": "A123"},
+		Profile:       application.Config.Profile,
+		CorrelationID: "corr-orders-app",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !envelope.OK {
+		t.Fatalf("OK = false, want true: %#v", envelope.Error)
+	}
+	if gotRequestID != "req_app_orders" {
+		t.Fatalf("%s = %q, want req_app_orders", httpclient.HeaderRequestID, gotRequestID)
+	}
+	if gotCorrelationID != "corr-orders-app" {
+		t.Fatalf("%s = %q, want corr-orders-app", httpclient.HeaderCorrelationID, gotCorrelationID)
+	}
+	got, ok := (*envelope.Data).(orders.GetResult)
+	if !ok {
+		t.Fatalf("Data = %T, want orders.GetResult", *envelope.Data)
+	}
+	if got.Order.ID != "A123" || got.Order.Status != "created" {
+		t.Fatalf("result = %#v, want mapped provider order", got)
 	}
 }

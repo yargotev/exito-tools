@@ -10,8 +10,10 @@ const (
 	CapabilityGetID = "orders.get"
 	DomainName      = "orders"
 
-	ErrorOrderNotFound       = "ORDER_NOT_FOUND"
-	ErrorOrdersNotConfigured = "ORDERS_NOT_CONFIGURED"
+	ErrorOrderNotFound                 = "ORDER_NOT_FOUND"
+	ErrorOrdersNotConfigured           = "ORDERS_NOT_CONFIGURED"
+	ErrorOrdersProviderUnavailable     = "ORDERS_PROVIDER_UNAVAILABLE"
+	ErrorOrdersProviderInvalidResponse = "ORDERS_PROVIDER_INVALID_RESPONSE"
 )
 
 // Order is the domain-owned result model for an order lookup.
