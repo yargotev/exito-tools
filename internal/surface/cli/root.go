@@ -31,6 +31,12 @@ type capabilitiesData struct {
 	Capabilities []capability.Definition `json:"capabilities"`
 }
 
+type defaultProfileData struct {
+	Profile      string        `json:"profile"`
+	ConfigPath   string        `json:"configPath"`
+	ConfigSource config.Source `json:"configSource"`
+}
+
 // NewRoot builds the minimal English-only CLI root surface.
 func NewRoot(bootstrap Bootstrapper) *cobra.Command {
 	if bootstrap == nil {
@@ -61,11 +67,55 @@ func NewRoot(bootstrap Bootstrapper) *cobra.Command {
 	command.PersistentFlags().StringVar(&options.correlationID, "correlation-id", "", "Correlation ID to include in JSON command metadata")
 	command.SetHelpCommand(&cobra.Command{Hidden: true})
 	command.AddCommand(newCapabilitiesCommand(bootstrap, &options))
+	command.AddCommand(newConfigCommand(&options))
 	command.AddCommand(newRunCommand(bootstrap, &options))
 	command.AddCommand(newOrdersCommand(bootstrap, &options))
 	command.AddCommand(newGeoCommand(bootstrap, &options))
 	command.AddCommand(newTUICommand(bootstrap, &options))
 	return command
+}
+
+func newConfigCommand(options *rootOptions) *cobra.Command {
+	command := &cobra.Command{
+		Use:   "config",
+		Short: "Manage non-sensitive application configuration",
+	}
+	command.AddCommand(newSetDefaultProfileCommand(options))
+	return command
+}
+
+func newSetDefaultProfileCommand(options *rootOptions) *cobra.Command {
+	return &cobra.Command{
+		Use:   "set-default-profile <profile>",
+		Short: "Persist the saved Default Profile",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			startedAt := time.Now()
+			requestID, err := execution.NewRequestID()
+			if err != nil {
+				return err
+			}
+
+			result, err := config.SetDefaultProfile(appOptions(*options).Config, args[0])
+			if err != nil {
+				return err
+			}
+
+			data := defaultProfileData{
+				Profile:      result.Profile,
+				ConfigPath:   result.ConfigPath,
+				ConfigSource: result.ConfigSource,
+			}
+			metadata := execution.NewMetadata(requestID, options.correlationID, startedAt, time.Now())
+			envelope := capability.Envelope[defaultProfileData]{
+				OK:   true,
+				Data: &data,
+				Meta: metadata.EnvelopeMeta(result.Profile, ""),
+			}
+
+			return presenter.WriteJSON(cmd.OutOrStdout(), envelope)
+		},
+	}
 }
 
 func newTUICommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Command {

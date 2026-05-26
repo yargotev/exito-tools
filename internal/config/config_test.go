@@ -633,3 +633,91 @@ func writeTextFile(t *testing.T, path string, content string) {
 		t.Fatalf("WriteFile(%q) error = %v", path, err)
 	}
 }
+
+func TestSetDefaultProfile(t *testing.T) {
+	t.Parallel()
+
+	t.Run("updates existing selected local YAML default profile", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		path := filepath.Join(workDir, "exito.yaml")
+		writeTextFile(t, path, "# team config\ndefaultProfile: staging\n")
+
+		result, err := config.SetDefaultProfile(config.Options{Env: map[string]string{}, WorkDir: workDir, HomeDir: t.TempDir()}, "prod")
+		if err != nil {
+			t.Fatalf("SetDefaultProfile() error = %v", err)
+		}
+
+		if result.Profile != "prod" || result.ConfigPath != path || result.ConfigSource != config.SourceLocalProject {
+			t.Fatalf("result = %#v, want prod local path", result)
+		}
+		content := readTextFile(t, path)
+		if !strings.Contains(content, "defaultProfile: prod") {
+			t.Fatalf("updated file missing default profile:\n%s", content)
+		}
+		if strings.Contains(content, "EXITO_GEO_TOKEN") || strings.Contains(content, "EXITO_ORDERS_TOKEN") {
+			t.Fatalf("updated file should not write credential keys:\n%s", content)
+		}
+	})
+
+	t.Run("appends missing default profile", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		path := filepath.Join(workDir, "exito.yaml")
+		writeTextFile(t, path, "profiles:\n  staging: {}\n")
+
+		_, err := config.SetDefaultProfile(config.Options{Env: map[string]string{}, WorkDir: workDir, HomeDir: t.TempDir()}, "qa")
+		if err != nil {
+			t.Fatalf("SetDefaultProfile() error = %v", err)
+		}
+
+		content := readTextFile(t, path)
+		if !strings.Contains(content, "profiles:\n  staging: {}\ndefaultProfile: qa\n") {
+			t.Fatalf("updated file did not append default profile as expected:\n%s", content)
+		}
+	})
+
+	t.Run("creates local config when no file exists", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		path := filepath.Join(workDir, "exito.yaml")
+
+		result, err := config.SetDefaultProfile(config.Options{Env: map[string]string{}, WorkDir: workDir, HomeDir: t.TempDir()}, "dev")
+		if err != nil {
+			t.Fatalf("SetDefaultProfile() error = %v", err)
+		}
+
+		if result.ConfigPath != path || result.ConfigSource != config.SourceLocalProject {
+			t.Fatalf("result = %#v, want created local config", result)
+		}
+		if content := readTextFile(t, path); content != "defaultProfile: dev\n" {
+			t.Fatalf("created file = %q, want default profile only", content)
+		}
+	})
+
+	t.Run("blank profile is rejected before writing", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		_, err := config.SetDefaultProfile(config.Options{Env: map[string]string{}, WorkDir: workDir, HomeDir: t.TempDir()}, "   ")
+		if err == nil {
+			t.Fatalf("SetDefaultProfile() error = nil, want validation error")
+		}
+		if _, statErr := os.Stat(filepath.Join(workDir, "exito.yaml")); !os.IsNotExist(statErr) {
+			t.Fatalf("exito.yaml should not be written, stat error = %v", statErr)
+		}
+	})
+}
+
+func readTextFile(t *testing.T, path string) string {
+	t.Helper()
+
+	content, err := os.ReadFile(path) // #nosec G304 -- tests read their own temporary files.
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", path, err)
+	}
+	return string(content)
+}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -49,6 +50,7 @@ func TestRootHelpPaths(t *testing.T) {
 				"Use an implemented subcommand for machine-readable JSON output.",
 				"Usage:",
 				"capabilities",
+				"config",
 				"orders",
 				"geo",
 				"tui",
@@ -689,5 +691,112 @@ func assertFailureExitCode(t *testing.T, err error) {
 	}
 	if got := clisurface.ExitCode(err); got != clisurface.ExitCodeFailure {
 		t.Fatalf("ExitCode(error) = %d, want %d (err: %v)", got, clisurface.ExitCodeFailure, err)
+	}
+}
+
+func TestConfigSetDefaultProfileCommandWritesJSONEnvelopeAndConfig(t *testing.T) {
+	workDir := t.TempDir()
+	configPath := filepath.Join(workDir, "team.yaml")
+	if err := os.WriteFile(configPath, []byte("defaultProfile: staging\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	root := clisurface.NewRoot(app.New)
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stdout)
+	root.SetArgs([]string{"--config", configPath, "--correlation-id", "corr-profile", "config", "set-default-profile", "prod"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	content, err := os.ReadFile(configPath) // #nosec G304 -- test reads its own temporary config file.
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(content) != "defaultProfile: prod\n" {
+		t.Fatalf("config file = %q, want updated default profile", string(content))
+	}
+
+	var got struct {
+		OK   bool `json:"ok"`
+		Data struct {
+			Profile      string        `json:"profile"`
+			ConfigPath   string        `json:"configPath"`
+			ConfigSource config.Source `json:"configSource"`
+		} `json:"data"`
+		Meta struct {
+			RequestID     string `json:"requestId"`
+			CorrelationID string `json:"correlationId"`
+			Profile       string `json:"profile"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("config output is not JSON: %v\n%s", err, stdout.String())
+	}
+	if !got.OK {
+		t.Fatalf("ok = false, want true")
+	}
+	if got.Data.Profile != "prod" || got.Data.ConfigPath != configPath || got.Data.ConfigSource != config.SourceExplicit {
+		t.Fatalf("data = %#v, want persisted profile data", got.Data)
+	}
+	if got.Meta.RequestID == "" || got.Meta.CorrelationID != "corr-profile" || got.Meta.Profile != "prod" {
+		t.Fatalf("meta = %#v, want request, correlation, and profile", got.Meta)
+	}
+}
+
+func TestConfigSetDefaultProfileCommandCreatesLocalConfigByDefault(t *testing.T) {
+	workDir := t.TempDir()
+	t.Chdir(workDir)
+
+	root := clisurface.NewRoot(app.New)
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stdout)
+	root.SetArgs([]string{"config", "set-default-profile", "qa"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	configPath := filepath.Join(workDir, "exito.yaml")
+	content, err := os.ReadFile(configPath) // #nosec G304 -- test reads its own temporary config file.
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(content) != "defaultProfile: qa\n" {
+		t.Fatalf("created config file = %q, want default profile", string(content))
+	}
+
+	var got struct {
+		Data struct {
+			ConfigPath   string        `json:"configPath"`
+			ConfigSource config.Source `json:"configSource"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("config output is not JSON: %v\n%s", err, stdout.String())
+	}
+	if got.Data.ConfigPath != configPath || got.Data.ConfigSource != config.SourceLocalProject {
+		t.Fatalf("data = %#v, want local config target", got.Data)
+	}
+}
+
+func TestConfigSetDefaultProfileCommandRejectsBlankProfile(t *testing.T) {
+	workDir := t.TempDir()
+	t.Chdir(workDir)
+
+	root := clisurface.NewRoot(app.New)
+	var output bytes.Buffer
+	root.SetOut(&output)
+	root.SetErr(&output)
+	root.SetArgs([]string{"config", "set-default-profile", "   "})
+
+	if err := root.Execute(); err == nil {
+		t.Fatalf("Execute() error = nil, want validation error")
+	}
+	if _, err := os.Stat(filepath.Join(workDir, "exito.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("blank profile should not create config file, stat error = %v", err)
 	}
 }
