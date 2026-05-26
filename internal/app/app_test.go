@@ -11,6 +11,7 @@ import (
 	"github.com/yargotev/exito-tools/internal/config"
 	"github.com/yargotev/exito-tools/internal/domain/geo"
 	"github.com/yargotev/exito-tools/internal/execution"
+	"github.com/yargotev/exito-tools/internal/platform/httpclient"
 )
 
 func TestNewResolvesConfigurationAtBoot(t *testing.T) {
@@ -76,7 +77,11 @@ func TestNewWiresBootCapabilities(t *testing.T) {
 func TestNewWiresConfiguredGeoHTTPGeocoder(t *testing.T) {
 	t.Parallel()
 
+	var gotRequestID string
+	var gotCorrelationID string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotRequestID = r.Header.Get(httpclient.HeaderRequestID)
+		gotCorrelationID = r.Header.Get(httpclient.HeaderCorrelationID)
 		if r.URL.Path != "/geocode-address" {
 			t.Fatalf("request path = %q, want /geocode-address", r.URL.Path)
 		}
@@ -96,16 +101,26 @@ func TestNewWiresConfiguredGeoHTTPGeocoder(t *testing.T) {
 		t.Fatalf("app.New() error = %v", err)
 	}
 
-	envelope, err := execution.NewPipeline(application.Registry).Execute(context.Background(), execution.ExecuteRequest{
-		CapabilityID: geo.CapabilityGeocodeAddressID,
-		Input:        capability.Input{"city": "Bogota", "address": "Avenida Siempre Viva"},
-		Profile:      application.Config.Profile,
+	envelope, err := execution.NewPipeline(
+		application.Registry,
+		execution.WithRequestIDGenerator(func() (string, error) { return "req_app_geo", nil }),
+	).Execute(context.Background(), execution.ExecuteRequest{
+		CapabilityID:  geo.CapabilityGeocodeAddressID,
+		Input:         capability.Input{"city": "Bogota", "address": "Avenida Siempre Viva"},
+		Profile:       application.Config.Profile,
+		CorrelationID: "corr-app",
 	})
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
 	if !envelope.OK {
 		t.Fatalf("OK = false, want true: %#v", envelope.Error)
+	}
+	if gotRequestID != "req_app_geo" {
+		t.Fatalf("%s = %q, want req_app_geo", httpclient.HeaderRequestID, gotRequestID)
+	}
+	if gotCorrelationID != "corr-app" {
+		t.Fatalf("%s = %q, want corr-app", httpclient.HeaderCorrelationID, gotCorrelationID)
 	}
 	got, ok := (*envelope.Data).(geo.GeocodeAddressResult)
 	if !ok {

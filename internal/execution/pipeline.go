@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/yargotev/exito-tools/internal/capability"
+	"github.com/yargotev/exito-tools/internal/platform/httpclient"
 	"github.com/yargotev/exito-tools/internal/registry"
 )
 
@@ -91,6 +92,11 @@ func (p Pipeline) Execute(ctx context.Context, request ExecuteRequest) (capabili
 			CapabilityID:  request.CapabilityID,
 		},
 	}
+
+	ctx = httpclient.ContextWithRequestMetadata(ctx, httpclient.RequestMetadata{
+		RequestID:     requestID,
+		CorrelationID: request.CorrelationID,
+	})
 
 	result, err := entry.Handler(ctx, executionRequest)
 	if err != nil {

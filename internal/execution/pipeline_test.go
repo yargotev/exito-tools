@@ -9,6 +9,7 @@ import (
 
 	"github.com/yargotev/exito-tools/internal/capability"
 	"github.com/yargotev/exito-tools/internal/execution"
+	"github.com/yargotev/exito-tools/internal/platform/httpclient"
 	"github.com/yargotev/exito-tools/internal/registry"
 )
 
@@ -45,6 +46,13 @@ func TestPipelineExecutesRegisteredCapability(t *testing.T) {
 	}
 	if gotContext.Value(testContextKey{}) != "context-value" {
 		t.Fatalf("handler did not receive original context")
+	}
+	gotHTTPMetadata, ok := httpclient.RequestMetadataFromContext(gotContext)
+	if !ok {
+		t.Fatalf("handler context missing HTTP request metadata")
+	}
+	if gotHTTPMetadata.RequestID != "req_test" || gotHTTPMetadata.CorrelationID != "corr-123" {
+		t.Fatalf("HTTP request metadata = %#v, want request/correlation IDs", gotHTTPMetadata)
 	}
 	if !reflect.DeepEqual(gotRequest.Input, input) {
 		t.Fatalf("handler input = %#v, want %#v", gotRequest.Input, input)

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/yargotev/exito-tools/internal/capability"
+	"github.com/yargotev/exito-tools/internal/platform/httpclient"
 )
 
 const defaultHTTPTimeout = 10 * time.Second
@@ -71,6 +72,7 @@ func (g HTTPGeocoder) GeocodeAddress(ctx context.Context, input GeocodeAddressIn
 	request.Header.Set("Accept", "application/json")
 	request.Header.Set("Authorization", "Bearer "+g.token)
 	request.Header.Set("Content-Type", "application/json")
+	httpclient.ApplyRequestMetadata(ctx, request)
 
 	response, err := g.client.Do(request)
 	if err != nil {

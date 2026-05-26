@@ -10,6 +10,7 @@ import (
 
 	"github.com/yargotev/exito-tools/internal/capability"
 	"github.com/yargotev/exito-tools/internal/domain/geo"
+	"github.com/yargotev/exito-tools/internal/platform/httpclient"
 )
 
 func TestHTTPGeocoderPostsRequestAndMapsProviderResponse(t *testing.T) {
@@ -17,6 +18,8 @@ func TestHTTPGeocoderPostsRequestAndMapsProviderResponse(t *testing.T) {
 
 	var gotPath string
 	var gotAuth string
+	var gotRequestID string
+	var gotCorrelationID string
 	var gotBody struct {
 		City    string `json:"city"`
 		Address string `json:"address"`
@@ -24,6 +27,8 @@ func TestHTTPGeocoderPostsRequestAndMapsProviderResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		gotAuth = r.Header.Get("Authorization")
+		gotRequestID = r.Header.Get(httpclient.HeaderRequestID)
+		gotCorrelationID = r.Header.Get(httpclient.HeaderCorrelationID)
 		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
 			t.Fatalf("Decode(request body) error = %v", err)
 		}
@@ -43,8 +48,12 @@ func TestHTTPGeocoderPostsRequestAndMapsProviderResponse(t *testing.T) {
 	}))
 	defer server.Close()
 
+	ctx := httpclient.ContextWithRequestMetadata(context.Background(), httpclient.RequestMetadata{
+		RequestID:     "req_geo",
+		CorrelationID: "corr-geo",
+	})
 	geocoder := geo.NewHTTPGeocoder(geo.HTTPGeocoderConfig{BaseURL: server.URL, Token: "token-123"}, server.Client())
-	got, err := geocoder.GeocodeAddress(context.Background(), geo.GeocodeAddressInput{City: "Bogota", Address: "CL 57 H SUR # 68 D - 75"})
+	got, err := geocoder.GeocodeAddress(ctx, geo.GeocodeAddressInput{City: "Bogota", Address: "CL 57 H SUR # 68 D - 75"})
 	if err != nil {
 		t.Fatalf("GeocodeAddress() error = %v", err)
 	}
@@ -54,6 +63,12 @@ func TestHTTPGeocoderPostsRequestAndMapsProviderResponse(t *testing.T) {
 	}
 	if gotAuth != "Bearer token-123" {
 		t.Fatalf("Authorization = %q, want bearer token", gotAuth)
+	}
+	if gotRequestID != "req_geo" {
+		t.Fatalf("%s = %q, want req_geo", httpclient.HeaderRequestID, gotRequestID)
+	}
+	if gotCorrelationID != "corr-geo" {
+		t.Fatalf("%s = %q, want corr-geo", httpclient.HeaderCorrelationID, gotCorrelationID)
 	}
 	if gotBody.City != "Bogota" || gotBody.Address != "CL 57 H SUR # 68 D - 75" {
 		t.Fatalf("request body = %#v, want city/address", gotBody)
