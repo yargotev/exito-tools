@@ -9,6 +9,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/yargotev/exito-tools/internal/app"
 	"github.com/yargotev/exito-tools/internal/capability"
+	"github.com/yargotev/exito-tools/internal/execution"
+	"github.com/yargotev/exito-tools/internal/registry"
 )
 
 // IO contains terminal streams for the TUI Surface.
@@ -19,11 +21,35 @@ type IO struct {
 
 // Model is the initial Bubble Tea model for the task-first TUI Surface.
 type Model struct {
+	ctx            context.Context
+	registry       registry.Registry
 	profile        string
 	primaryActions []capability.Definition
 	paletteActions []capability.Definition
 	paletteOpen    bool
 	paletteQuery   string
+	paletteIndex   int
+	task           taskState
+}
+
+type taskStatus string
+
+const (
+	taskIdle    taskStatus = ""
+	taskLoading taskStatus = "loading"
+	taskSuccess taskStatus = "success"
+	taskFailure taskStatus = "failure"
+)
+
+type taskState struct {
+	Status       taskStatus
+	CapabilityID string
+	Error        *capability.StructuredError
+}
+
+type actionExecutedMsg struct {
+	envelope capability.Envelope[any]
+	err      error
 }
 
 // NewModel builds the initial TUI model from the bootstrapped application.
@@ -33,6 +59,8 @@ func NewModel(application *app.Application) Model {
 	}
 
 	return Model{
+		ctx:            context.Background(),
+		registry:       application.Registry,
 		profile:        application.Config.Profile,
 		primaryActions: primaryActions(application.Registry.All()),
 		paletteActions: paletteActions(application.Registry.All()),
@@ -58,7 +86,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "/":
 			m.paletteOpen = true
 			m.paletteQuery = ""
+			m.paletteIndex = 0
 		}
+	case actionExecutedMsg:
+		if msg.err != nil {
+			m.task = taskState{
+				Status: taskFailure,
+				Error: &capability.StructuredError{
+					Code:    execution.ErrorCapabilityExecutionFailed,
+					Message: "Capability execution failed.",
+				},
+			}
+			return m, nil
+		}
+		m.task.CapabilityID = msg.envelope.Meta.CapabilityID
+		if msg.envelope.OK {
+			m.task.Status = taskSuccess
+			m.task.Error = nil
+			return m, nil
+		}
+		m.task.Status = taskFailure
+		m.task.Error = msg.envelope.Error
 	}
 
 	return m, nil
@@ -75,6 +123,21 @@ func (m Model) View() string {
 		fmt.Fprintf(&builder, "- %s (%s)\n", definition.Title, definition.ID)
 	}
 
+	if m.task.Status != taskIdle {
+		builder.WriteString("\nTask\n")
+		switch m.task.Status {
+		case taskLoading:
+			fmt.Fprintf(&builder, "Running %s...\n", m.task.CapabilityID)
+		case taskSuccess:
+			fmt.Fprintf(&builder, "Success: %s\n", m.task.CapabilityID)
+		case taskFailure:
+			fmt.Fprintf(&builder, "Failure: %s\n", m.task.CapabilityID)
+			if m.task.Error != nil {
+				fmt.Fprintf(&builder, "%s: %s\n", m.task.Error.Code, m.task.Error.Message)
+			}
+		}
+	}
+
 	if m.paletteOpen {
 		builder.WriteString("\nCommand Palette\n")
 		fmt.Fprintf(&builder, "Search: %s\n", m.paletteQuery)
@@ -82,8 +145,12 @@ func (m Model) View() string {
 		if len(matches) == 0 {
 			builder.WriteString("No actions found.\n")
 		}
-		for _, definition := range matches {
-			fmt.Fprintf(&builder, "- %s (%s)\n", definition.Title, definition.ID)
+		for index, definition := range matches {
+			prefix := " "
+			if index == m.paletteIndex {
+				prefix = ">"
+			}
+			fmt.Fprintf(&builder, "%s %s (%s)\n", prefix, definition.Title, definition.ID)
 		}
 		builder.WriteString("Press esc to close.\n")
 	}
@@ -97,18 +164,54 @@ func (m Model) updatePalette(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEsc:
 		m.paletteOpen = false
 		m.paletteQuery = ""
+		m.paletteIndex = 0
+	case tea.KeyEnter:
+		matches := m.filteredPaletteActions()
+		if len(matches) == 0 {
+			return m, nil
+		}
+		selected := matches[m.clampedPaletteIndex(len(matches))]
+		m.paletteIndex = m.clampedPaletteIndex(len(matches))
+		m.task = taskState{Status: taskLoading, CapabilityID: selected.ID}
+		return m, m.executeAction(selected.ID)
+	case tea.KeyUp:
+		if m.paletteIndex > 0 {
+			m.paletteIndex--
+		}
+	case tea.KeyDown:
+		if m.paletteIndex < len(m.filteredPaletteActions())-1 {
+			m.paletteIndex++
+		}
 	case tea.KeyBackspace:
 		if len(m.paletteQuery) > 0 {
 			runes := []rune(m.paletteQuery)
 			m.paletteQuery = string(runes[:len(runes)-1])
 		}
+		m.paletteIndex = m.clampedPaletteIndex(len(m.filteredPaletteActions()))
 	case tea.KeyRunes:
 		m.paletteQuery += string(msg.Runes)
+		m.paletteIndex = m.clampedPaletteIndex(len(m.filteredPaletteActions()))
 	case tea.KeyCtrlC:
 		return m, tea.Quit
 	}
 
 	return m, nil
+}
+
+func (m Model) executeAction(capabilityID string) tea.Cmd {
+	ctx := m.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return func() tea.Msg {
+		pipeline := execution.NewPipeline(m.registry)
+		envelope, err := pipeline.Execute(ctx, execution.ExecuteRequest{
+			CapabilityID: capabilityID,
+			Input:        capability.Input{},
+			Profile:      profileLabel(m.profile),
+		})
+		return actionExecutedMsg{envelope: envelope, err: err}
+	}
 }
 
 // Run starts the Bubble Tea TUI program.
@@ -121,7 +224,9 @@ func Run(ctx context.Context, application *app.Application, ioStreams IO) error 
 		options = append(options, tea.WithOutput(ioStreams.Output))
 	}
 
-	_, err := tea.NewProgram(NewModel(application), options...).Run()
+	model := NewModel(application)
+	model.ctx = ctx
+	_, err := tea.NewProgram(model, options...).Run()
 	return err
 }
 
@@ -160,6 +265,16 @@ func (m Model) filteredPaletteActions() []capability.Definition {
 		}
 	}
 	return matches
+}
+
+func (m Model) clampedPaletteIndex(length int) int {
+	if length <= 0 || m.paletteIndex < 0 {
+		return 0
+	}
+	if m.paletteIndex >= length {
+		return length - 1
+	}
+	return m.paletteIndex
 }
 
 func hasVisibility(definition capability.Definition, visibility capability.Visibility) bool {

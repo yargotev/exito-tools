@@ -1,6 +1,7 @@
 package tui_test
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -154,5 +155,128 @@ func TestModelQuitKeysExitProgram(t *testing.T) {
 	_, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
 	if cmd == nil {
 		t.Fatalf("Update(q) command = nil, want quit command")
+	}
+}
+
+func TestCommandPaletteSelectionExecutesActionThroughPipeline(t *testing.T) {
+	t.Parallel()
+
+	builder := registry.NewBuilder()
+	if err := builder.RegisterExecutable(capability.Executable{
+		Definition: capability.Definition{
+			ID:         "foundation.ping",
+			Domain:     "foundation",
+			Title:      "Ping foundation",
+			Audiences:  []capability.Audience{capability.AudiencePeople},
+			Visibility: []capability.Visibility{capability.VisibilityCommandPalette},
+		},
+		Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
+			if request.Context.Profile != "prod" {
+				t.Fatalf("profile = %q, want prod", request.Context.Profile)
+			}
+			return capability.ExecutionResult{Data: map[string]any{"pong": true}}, nil
+		},
+	}); err != nil {
+		t.Fatalf("RegisterExecutable() error = %v", err)
+	}
+
+	var model tea.Model = tui.NewModel(&app.Application{
+		Config:   config.Effective{Profile: "prod"},
+		Registry: builder.Finalize(),
+	})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	model, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatalf("Update(enter) command = nil, want execution command")
+	}
+
+	loadingView := model.(tui.Model).View()
+	if !strings.Contains(loadingView, "Running foundation.ping...") {
+		t.Fatalf("loading view missing running state\n%s", loadingView)
+	}
+
+	model, _ = model.Update(cmd())
+	view := model.(tui.Model).View()
+	for _, fragment := range []string{"Task", "Success: foundation.ping"} {
+		if !strings.Contains(view, fragment) {
+			t.Fatalf("success view missing %q\n%s", fragment, view)
+		}
+	}
+}
+
+func TestCommandPaletteExecutionRendersStructuredFailure(t *testing.T) {
+	t.Parallel()
+
+	builder := registry.NewBuilder()
+	if err := builder.RegisterExecutable(capability.Executable{
+		Definition: capability.Definition{
+			ID:         "orders.get",
+			Domain:     "orders",
+			Title:      "Get order",
+			Audiences:  []capability.Audience{capability.AudiencePeople},
+			Visibility: []capability.Visibility{capability.VisibilityCommandPalette},
+			InputSchema: &capability.InputSchema{Fields: []capability.InputField{
+				{Name: "id", Type: capability.InputTypeString, Required: true},
+			}},
+		},
+		Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
+			t.Fatal("handler should not run when required input is missing")
+			return capability.ExecutionResult{}, nil
+		},
+	}); err != nil {
+		t.Fatalf("RegisterExecutable() error = %v", err)
+	}
+
+	var model tea.Model = tui.NewModel(&app.Application{Registry: builder.Finalize()})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	model, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatalf("Update(enter) command = nil, want execution command")
+	}
+
+	model, _ = model.Update(cmd())
+	view := model.(tui.Model).View()
+	for _, fragment := range []string{"Failure: orders.get", "INVALID_INPUT", "Required input field \"id\" is missing."} {
+		if !strings.Contains(view, fragment) {
+			t.Fatalf("failure view missing %q\n%s", fragment, view)
+		}
+	}
+}
+
+func TestCommandPaletteSelectionMovesWithArrowKeys(t *testing.T) {
+	t.Parallel()
+
+	builder := registry.NewBuilder()
+	for _, definition := range []capability.Definition{
+		{
+			ID:         "orders.get",
+			Domain:     "orders",
+			Title:      "Get order",
+			Audiences:  []capability.Audience{capability.AudiencePeople},
+			Visibility: []capability.Visibility{capability.VisibilityCommandPalette},
+		},
+		{
+			ID:         "geo.geocode-address",
+			Domain:     "geo",
+			Title:      "Geocode address",
+			Audiences:  []capability.Audience{capability.AudiencePeople},
+			Visibility: []capability.Visibility{capability.VisibilityCommandPalette},
+		},
+	} {
+		if err := builder.Register(definition); err != nil {
+			t.Fatalf("Register() error = %v", err)
+		}
+	}
+
+	var model tea.Model = tui.NewModel(&app.Application{Registry: builder.Finalize()})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+
+	view := model.(tui.Model).View()
+	if !strings.Contains(view, "> Geocode address (geo.geocode-address)") {
+		t.Fatalf("view should mark second action selected\n%s", view)
+	}
+	if !strings.Contains(view, "  Get order (orders.get)") {
+		t.Fatalf("view should leave first action unselected\n%s", view)
 	}
 }
