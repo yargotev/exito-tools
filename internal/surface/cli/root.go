@@ -11,6 +11,7 @@ import (
 	"github.com/yargotev/exito-tools/internal/app"
 	"github.com/yargotev/exito-tools/internal/capability"
 	"github.com/yargotev/exito-tools/internal/config"
+	"github.com/yargotev/exito-tools/internal/domain/orders"
 	"github.com/yargotev/exito-tools/internal/execution"
 	"github.com/yargotev/exito-tools/internal/presenter"
 )
@@ -59,6 +60,7 @@ func NewRoot(bootstrap Bootstrapper) *cobra.Command {
 	command.SetHelpCommand(&cobra.Command{Hidden: true})
 	command.AddCommand(newCapabilitiesCommand(bootstrap, &options))
 	command.AddCommand(newRunCommand(bootstrap, &options))
+	command.AddCommand(newOrdersCommand(bootstrap, &options))
 	return command
 }
 
@@ -90,6 +92,48 @@ func newCapabilitiesCommand(bootstrap Bootstrapper, options *rootOptions) *cobra
 			return presenter.WriteJSON(cmd.OutOrStdout(), envelope)
 		},
 	}
+}
+
+func newOrdersCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Command {
+	command := &cobra.Command{
+		Use:   "orders",
+		Short: "Run Orders Domain commands",
+	}
+	command.AddCommand(newOrdersGetCommand(bootstrap, options))
+	return command
+}
+
+func newOrdersGetCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Command {
+	var orderID string
+
+	command := &cobra.Command{
+		Use:   "get",
+		Short: "Get an order by ID",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			application, err := bootstrap(appOptions(*options))
+			if err != nil {
+				return err
+			}
+
+			pipeline := execution.NewPipeline(application.Registry)
+			envelope, err := pipeline.Execute(cmd.Context(), execution.ExecuteRequest{
+				CapabilityID:  orders.CapabilityGetID,
+				Input:         capability.Input{"id": orderID},
+				Profile:       application.Config.Profile,
+				CorrelationID: options.correlationID,
+			})
+			if err != nil {
+				return err
+			}
+
+			return presenter.WriteJSON(cmd.OutOrStdout(), envelope)
+		},
+	}
+
+	command.Flags().StringVar(&orderID, "id", "", "Order identifier")
+	_ = command.MarkFlagRequired("id")
+	return command
 }
 
 func newRunCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Command {

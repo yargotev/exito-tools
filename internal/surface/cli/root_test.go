@@ -48,13 +48,14 @@ func TestRootHelpPaths(t *testing.T) {
 				"Use an implemented subcommand for machine-readable JSON output.",
 				"Usage:",
 				"capabilities",
+				"orders",
 			} {
 				if !strings.Contains(rendered, fragment) {
 					t.Fatalf("help output missing %q\n%s", fragment, rendered)
 				}
 			}
 
-			for _, forbidden := range []string{"orders", "geo", "\"ok\"", "\"data\"", "\"error\""} {
+			for _, forbidden := range []string{"geo", "\"ok\"", "\"data\"", "\"error\""} {
 				if strings.Contains(strings.ToLower(rendered), forbidden) {
 					t.Fatalf("help output unexpectedly contains %q\n%s", forbidden, rendered)
 				}
@@ -396,6 +397,61 @@ func TestRunCommandAcceptsInputFileAndStdin(t *testing.T) {
 				t.Fatalf("run output missing %q\n%s", tc.want, stdout.String())
 			}
 		})
+	}
+}
+
+func TestOrdersGetCommandRunsOrdersGetCapability(t *testing.T) {
+	t.Parallel()
+
+	root := clisurface.NewRoot(app.New)
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stdout)
+	root.SetArgs([]string{"--profile", "prod", "--correlation-id", "corr-123", "orders", "get", "--id", "A123"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	var got struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+		Meta struct {
+			CorrelationID string `json:"correlationId"`
+			Profile       string `json:"profile"`
+			CapabilityID  string `json:"capabilityId"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("orders get output is not JSON: %v\n%s", err, stdout.String())
+	}
+	if got.OK {
+		t.Fatalf("ok = true, want false until Orders client is configured")
+	}
+	if got.Error.Code != orders.ErrorOrdersNotConfigured {
+		t.Fatalf("error.code = %q, want %s", got.Error.Code, orders.ErrorOrdersNotConfigured)
+	}
+	if got.Meta.CorrelationID != "corr-123" || got.Meta.Profile != "prod" || got.Meta.CapabilityID != orders.CapabilityGetID {
+		t.Fatalf("unexpected metadata: %#v", got.Meta)
+	}
+}
+
+func TestOrdersGetCommandRequiresID(t *testing.T) {
+	t.Parallel()
+
+	root := clisurface.NewRoot(app.New)
+	var output bytes.Buffer
+	root.SetOut(&output)
+	root.SetErr(&output)
+	root.SetArgs([]string{"orders", "get"})
+
+	if err := root.Execute(); err == nil {
+		t.Fatalf("Execute() error = nil, want missing required flag error")
+	}
+	if strings.Contains(output.String(), "{\"ok\"") {
+		t.Fatalf("missing flag error should not emit JSON envelope\n%s", output.String())
 	}
 }
 
