@@ -11,6 +11,7 @@ import (
 	"github.com/yargotev/exito-tools/internal/app"
 	"github.com/yargotev/exito-tools/internal/capability"
 	"github.com/yargotev/exito-tools/internal/config"
+	"github.com/yargotev/exito-tools/internal/domain/orders"
 	"github.com/yargotev/exito-tools/internal/registry"
 	clisurface "github.com/yargotev/exito-tools/internal/surface/cli"
 )
@@ -395,6 +396,42 @@ func TestRunCommandAcceptsInputFileAndStdin(t *testing.T) {
 				t.Fatalf("run output missing %q\n%s", tc.want, stdout.String())
 			}
 		})
+	}
+}
+
+func TestRunCommandExecutesBootstrappedOrdersGetCapability(t *testing.T) {
+	t.Parallel()
+
+	root := clisurface.NewRoot(app.New)
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stdout)
+	root.SetArgs([]string{"run", orders.CapabilityGetID, "--input-json", `{"id":"A123"}`})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	var got struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+		Meta struct {
+			CapabilityID string `json:"capabilityId"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("run output is not JSON: %v\n%s", err, stdout.String())
+	}
+	if got.OK {
+		t.Fatalf("ok = true, want false until Orders client is configured")
+	}
+	if got.Error.Code != orders.ErrorOrdersNotConfigured {
+		t.Fatalf("error.code = %q, want %s", got.Error.Code, orders.ErrorOrdersNotConfigured)
+	}
+	if got.Meta.CapabilityID != orders.CapabilityGetID {
+		t.Fatalf("meta.capabilityId = %q, want %s", got.Meta.CapabilityID, orders.CapabilityGetID)
 	}
 }
 

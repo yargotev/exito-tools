@@ -2,6 +2,7 @@ package app
 
 import (
 	"github.com/yargotev/exito-tools/internal/config"
+	"github.com/yargotev/exito-tools/internal/domain/orders"
 	"github.com/yargotev/exito-tools/internal/registry"
 )
 
@@ -24,6 +25,9 @@ func New(options Options) (*Application, error) {
 	}
 
 	builder := registry.NewBuilder()
+	if err := builder.RegisterExecutable(orders.NewGetCapability(orders.UnavailableGetter{})); err != nil {
+		return nil, err
+	}
 
 	return &Application{
 		Config:   effectiveConfig,

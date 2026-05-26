@@ -36,3 +36,23 @@ func TestNewResolvesConfigurationAtBoot(t *testing.T) {
 		t.Fatalf("ConfigSource = %q, want %q", application.Config.ConfigSource, config.SourceExplicit)
 	}
 }
+
+func TestNewWiresOrdersGetCapability(t *testing.T) {
+	t.Parallel()
+
+	application, err := app.New(app.Options{Config: config.Options{Env: map[string]string{}}})
+	if err != nil {
+		t.Fatalf("app.New() error = %v", err)
+	}
+
+	entry, ok := application.Registry.Find("orders.get")
+	if !ok {
+		t.Fatalf("orders.get capability was not registered")
+	}
+	if entry.Definition.Domain != "orders" {
+		t.Fatalf("Domain = %q, want orders", entry.Definition.Domain)
+	}
+	if entry.Handler == nil {
+		t.Fatalf("orders.get handler is nil")
+	}
+}
