@@ -32,6 +32,7 @@ type Model struct {
 	paletteQuery   string
 	paletteIndex   int
 	form           formState
+	profileForm    profileFormState
 	task           taskState
 	taskCancel     context.CancelFunc
 	resultFilter   resultFilterState
@@ -72,6 +73,11 @@ type formState struct {
 	Index        int
 }
 
+type profileFormState struct {
+	Active bool
+	Value  string
+}
+
 // NewModel builds the initial TUI model from the bootstrapped application.
 func NewModel(application *app.Application) Model {
 	if application == nil {
@@ -108,6 +114,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateForm(msg)
 		}
 
+		if m.profileForm.Active {
+			return m.updateProfileForm(msg)
+		}
+
 		if m.paletteOpen {
 			return m.updatePalette(msg)
 		}
@@ -123,6 +133,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(resultRows(m.task.Data)) > 0 && m.task.Status == taskSuccess {
 				m.resultFilter = resultFilterState{Active: true}
 			}
+		case "p":
+			m.profileForm = profileFormState{Active: true}
 		}
 	case actionExecutedMsg:
 		if m.task.Status == taskCancelled && m.task.CapabilityID == msg.envelope.Meta.CapabilityID {
@@ -202,6 +214,13 @@ func (m Model) View() string {
 		builder.WriteString("Press enter to continue.\n")
 	}
 
+	if m.profileForm.Active {
+		builder.WriteString("\nSession Profile\n")
+		fmt.Fprintf(&builder, "Current: %s\n", profileLabel(m.profile))
+		fmt.Fprintf(&builder, "> New profile: %s\n", m.profileForm.Value)
+		builder.WriteString("Press enter to apply or esc to cancel.\n")
+	}
+
 	if m.paletteOpen {
 		builder.WriteString("\nCommand Palette\n")
 		fmt.Fprintf(&builder, "Search: %s\n", m.paletteQuery)
@@ -219,7 +238,7 @@ func (m Model) View() string {
 		builder.WriteString("Press esc to close.\n")
 	}
 
-	builder.WriteString("\nPress q to quit.\n")
+	builder.WriteString("\nPress p to change session profile. Press q to quit.\n")
 	return builder.String()
 }
 
@@ -310,6 +329,31 @@ func (m Model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		capabilityID := m.form.CapabilityID
 		m.form = formState{}
 		return m.startExecution(capabilityID, input)
+	}
+
+	return m, nil
+}
+
+func (m Model) updateProfileForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.profileForm = profileFormState{}
+	case tea.KeyCtrlC:
+		return m, tea.Quit
+	case tea.KeyBackspace:
+		current := []rune(m.profileForm.Value)
+		if len(current) > 0 {
+			m.profileForm.Value = string(current[:len(current)-1])
+		}
+	case tea.KeyRunes:
+		m.profileForm.Value += string(msg.Runes)
+	case tea.KeyEnter:
+		profile := strings.TrimSpace(m.profileForm.Value)
+		if profile == "" {
+			return m, nil
+		}
+		m.profile = profile
+		m.profileForm = profileFormState{}
 	}
 
 	return m, nil

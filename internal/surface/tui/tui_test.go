@@ -40,7 +40,7 @@ func TestModelViewShowsProfileAndPrimaryActions(t *testing.T) {
 	})
 
 	view := model.View()
-	for _, fragment := range []string{"Exito Tools TUI", "Profile: prod", "Primary actions: 1", "Get order (orders.get)", "Press q to quit."} {
+	for _, fragment := range []string{"Exito Tools TUI", "Profile: prod", "Primary actions: 1", "Get order (orders.get)", "Press p to change session profile. Press q to quit."} {
 		if !strings.Contains(view, fragment) {
 			t.Fatalf("view missing %q\n%s", fragment, view)
 		}
@@ -155,6 +155,105 @@ func TestModelQuitKeysExitProgram(t *testing.T) {
 	_, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
 	if cmd == nil {
 		t.Fatalf("Update(q) command = nil, want quit command")
+	}
+}
+
+func TestSessionProfileFormChangesActiveProfile(t *testing.T) {
+	t.Parallel()
+
+	var model tea.Model = tui.NewModel(&app.Application{
+		Config:   config.Effective{Profile: "staging"},
+		Registry: registry.NewBuilder().Finalize(),
+	})
+	model, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	if cmd != nil {
+		t.Fatalf("Update(p) command = %#v, want nil", cmd)
+	}
+
+	view := model.(tui.Model).View()
+	for _, fragment := range []string{"Session Profile", "Current: staging", "> New profile:"} {
+		if !strings.Contains(view, fragment) {
+			t.Fatalf("profile form view missing %q\n%s", fragment, view)
+		}
+	}
+
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("prod")})
+	model, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil {
+		t.Fatalf("profile submit command = %#v, want nil", cmd)
+	}
+
+	view = model.(tui.Model).View()
+	if !strings.Contains(view, "Profile: prod") {
+		t.Fatalf("view should show changed session profile\n%s", view)
+	}
+	if strings.Contains(view, "Session Profile") {
+		t.Fatalf("profile form should close after submit\n%s", view)
+	}
+}
+
+func TestSessionProfileFormCancelKeepsActiveProfile(t *testing.T) {
+	t.Parallel()
+
+	var model tea.Model = tui.NewModel(&app.Application{
+		Config:   config.Effective{Profile: "staging"},
+		Registry: registry.NewBuilder().Finalize(),
+	})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("prod")})
+	model, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if cmd != nil {
+		t.Fatalf("profile cancel command = %#v, want nil", cmd)
+	}
+
+	view := model.(tui.Model).View()
+	if !strings.Contains(view, "Profile: staging") {
+		t.Fatalf("cancel should keep original profile\n%s", view)
+	}
+	if strings.Contains(view, "Session Profile") {
+		t.Fatalf("profile form should close on esc\n%s", view)
+	}
+}
+
+func TestSessionProfileChangeAppliesToSubsequentActionExecution(t *testing.T) {
+	t.Parallel()
+
+	builder := registry.NewBuilder()
+	if err := builder.RegisterExecutable(capability.Executable{
+		Definition: capability.Definition{
+			ID:         "foundation.ping",
+			Domain:     "foundation",
+			Title:      "Ping foundation",
+			Audiences:  []capability.Audience{capability.AudiencePeople},
+			Visibility: []capability.Visibility{capability.VisibilityCommandPalette},
+		},
+		Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
+			if request.Context.Profile != "prod" {
+				t.Fatalf("profile = %q, want prod", request.Context.Profile)
+			}
+			return capability.ExecutionResult{Data: map[string]any{"pong": true}}, nil
+		},
+	}); err != nil {
+		t.Fatalf("RegisterExecutable() error = %v", err)
+	}
+
+	var model tea.Model = tui.NewModel(&app.Application{
+		Config:   config.Effective{Profile: "staging"},
+		Registry: builder.Finalize(),
+	})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("prod")})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	model, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatalf("Update(enter) command = nil, want execution command")
+	}
+
+	model, _ = model.Update(cmd())
+	view := model.(tui.Model).View()
+	if !strings.Contains(view, "Success: foundation.ping") {
+		t.Fatalf("success view missing completed state\n%s", view)
 	}
 }
 
