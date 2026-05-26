@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/yargotev/exito-tools/internal/app"
 	"github.com/yargotev/exito-tools/internal/capability"
+	"github.com/yargotev/exito-tools/internal/config"
 	"github.com/yargotev/exito-tools/internal/execution"
 	"github.com/yargotev/exito-tools/internal/registry"
 )
@@ -25,6 +26,7 @@ type IO struct {
 type Model struct {
 	ctx            context.Context
 	registry       registry.Registry
+	configOptions  config.Options
 	profile        string
 	primaryActions []capability.Definition
 	paletteActions []capability.Definition
@@ -33,6 +35,7 @@ type Model struct {
 	paletteIndex   int
 	form           formState
 	profileForm    profileFormState
+	defaultProfile defaultProfileFormState
 	confirmation   confirmationState
 	task           taskState
 	taskCancel     context.CancelFunc
@@ -79,6 +82,17 @@ type profileFormState struct {
 	Value  string
 }
 
+type defaultProfileFormState struct {
+	Active bool
+	Value  string
+	Status string
+}
+
+type defaultProfileSavedMsg struct {
+	result config.DefaultProfileWriteResult
+	err    error
+}
+
 type confirmationState struct {
 	Active     bool
 	Definition capability.Definition
@@ -94,6 +108,7 @@ func NewModel(application *app.Application) Model {
 	return Model{
 		ctx:            context.Background(),
 		registry:       application.Registry,
+		configOptions:  application.ConfigOptions,
 		profile:        application.Config.Profile,
 		primaryActions: primaryActions(application.Registry.All()),
 		paletteActions: paletteActions(application.Registry.All()),
@@ -125,6 +140,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateProfileForm(msg)
 		}
 
+		if m.defaultProfile.Active {
+			return m.updateDefaultProfileForm(msg)
+		}
+
 		if m.confirmation.Active {
 			return m.updateConfirmation(msg)
 		}
@@ -146,6 +165,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "p":
 			m.profileForm = profileFormState{Active: true}
+		case "d":
+			m.defaultProfile = defaultProfileFormState{Active: true}
 		}
 	case actionExecutedMsg:
 		if m.task.Status == taskCancelled && m.task.CapabilityID == msg.envelope.Meta.CapabilityID {
@@ -178,6 +199,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.task.Error = msg.envelope.Error
 		m.task.Data = nil
 		m.resultFilter = resultFilterState{}
+	case defaultProfileSavedMsg:
+		if msg.err != nil {
+			m.defaultProfile = defaultProfileFormState{Status: fmt.Sprintf("Default Profile save failed: %s", msg.err.Error())}
+			return m, nil
+		}
+		m.profile = msg.result.Profile
+		m.defaultProfile = defaultProfileFormState{
+			Status: fmt.Sprintf("Default Profile saved: %s (%s)", msg.result.Profile, msg.result.ConfigPath),
+		}
 	}
 
 	return m, nil
@@ -232,6 +262,16 @@ func (m Model) View() string {
 		builder.WriteString("Press enter to apply or esc to cancel.\n")
 	}
 
+	if m.defaultProfile.Active {
+		builder.WriteString("\nDefault Profile\n")
+		fmt.Fprintf(&builder, "Current session: %s\n", profileLabel(m.profile))
+		fmt.Fprintf(&builder, "> Save default as: %s\n", m.defaultProfile.Value)
+		builder.WriteString("Press enter to save or esc to cancel.\n")
+	} else if m.defaultProfile.Status != "" {
+		builder.WriteString("\nDefault Profile\n")
+		fmt.Fprintf(&builder, "%s\n", m.defaultProfile.Status)
+	}
+
 	if m.confirmation.Active {
 		builder.WriteString("\nConfirm Action\n")
 		fmt.Fprintf(&builder, "Action: %s\n", m.confirmation.Definition.Title)
@@ -262,7 +302,7 @@ func (m Model) View() string {
 		builder.WriteString("Press esc to close.\n")
 	}
 
-	builder.WriteString("\nPress p to change session profile. Press q to quit.\n")
+	builder.WriteString("\nPress p to change session profile. Press d to save default profile. Press q to quit.\n")
 	return builder.String()
 }
 
@@ -385,6 +425,38 @@ func (m Model) updateProfileForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m Model) updateDefaultProfileForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.defaultProfile = defaultProfileFormState{}
+	case tea.KeyCtrlC:
+		return m, tea.Quit
+	case tea.KeyBackspace:
+		current := []rune(m.defaultProfile.Value)
+		if len(current) > 0 {
+			m.defaultProfile.Value = string(current[:len(current)-1])
+		}
+	case tea.KeyRunes:
+		m.defaultProfile.Value += string(msg.Runes)
+	case tea.KeyEnter:
+		profile := strings.TrimSpace(m.defaultProfile.Value)
+		if profile == "" {
+			return m, nil
+		}
+		m.defaultProfile = defaultProfileFormState{}
+		return m, m.saveDefaultProfile(profile)
+	}
+
+	return m, nil
+}
+
+func (m Model) saveDefaultProfile(profile string) tea.Cmd {
+	return func() tea.Msg {
+		result, err := config.SetDefaultProfile(m.configOptions, profile)
+		return defaultProfileSavedMsg{result: result, err: err}
+	}
 }
 
 func (m Model) updateConfirmation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

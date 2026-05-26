@@ -2,6 +2,8 @@ package tui_test
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -40,7 +42,7 @@ func TestModelViewShowsProfileAndPrimaryActions(t *testing.T) {
 	})
 
 	view := model.View()
-	for _, fragment := range []string{"Exito Tools TUI", "Profile: prod", "Primary actions: 1", "Get order (orders.get)", "Press p to change session profile. Press q to quit."} {
+	for _, fragment := range []string{"Exito Tools TUI", "Profile: prod", "Primary actions: 1", "Get order (orders.get)", "Press p to change session profile. Press d to save default profile. Press q to quit."} {
 		if !strings.Contains(view, fragment) {
 			t.Fatalf("view missing %q\n%s", fragment, view)
 		}
@@ -155,6 +157,125 @@ func TestModelQuitKeysExitProgram(t *testing.T) {
 	_, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
 	if cmd == nil {
 		t.Fatalf("Update(q) command = nil, want quit command")
+	}
+}
+
+func TestDefaultProfileFormSavesProfile(t *testing.T) {
+	t.Parallel()
+
+	workDir := t.TempDir()
+	configPath := filepath.Join(workDir, "exito.yaml")
+	var model tea.Model = tui.NewModel(&app.Application{
+		Config: config.Effective{Profile: "staging"},
+		ConfigOptions: config.Options{
+			ConfigPath: configPath,
+			WorkDir:    workDir,
+			HomeDir:    t.TempDir(),
+			Env:        map[string]string{},
+		},
+		Registry: registry.NewBuilder().Finalize(),
+	})
+
+	model, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	if cmd != nil {
+		t.Fatalf("Update(d) command = %#v, want nil", cmd)
+	}
+	view := model.(tui.Model).View()
+	for _, fragment := range []string{"Default Profile", "Current session: staging", "> Save default as:"} {
+		if !strings.Contains(view, fragment) {
+			t.Fatalf("default profile form missing %q\n%s", fragment, view)
+		}
+	}
+
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("prod")})
+	model, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatalf("default profile submit command = nil, want save command")
+	}
+	model, _ = model.Update(cmd())
+
+	view = model.(tui.Model).View()
+	for _, fragment := range []string{"Profile: prod", "Default Profile saved: prod", configPath} {
+		if !strings.Contains(view, fragment) {
+			t.Fatalf("saved default profile view missing %q\n%s", fragment, view)
+		}
+	}
+	content, err := os.ReadFile(configPath) // #nosec G304 -- test reads the config path created in t.TempDir.
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", configPath, err)
+	}
+	if string(content) != "defaultProfile: prod\n" {
+		t.Fatalf("config content = %q, want default profile line", string(content))
+	}
+}
+
+func TestDefaultProfileFormCancelKeepsActiveProfileAndDoesNotPersist(t *testing.T) {
+	t.Parallel()
+
+	workDir := t.TempDir()
+	configPath := filepath.Join(workDir, "exito.yaml")
+	var model tea.Model = tui.NewModel(&app.Application{
+		Config: config.Effective{Profile: "staging"},
+		ConfigOptions: config.Options{
+			ConfigPath: configPath,
+			WorkDir:    workDir,
+			HomeDir:    t.TempDir(),
+			Env:        map[string]string{},
+		},
+		Registry: registry.NewBuilder().Finalize(),
+	})
+
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("prod")})
+	model, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if cmd != nil {
+		t.Fatalf("default profile cancel command = %#v, want nil", cmd)
+	}
+
+	view := model.(tui.Model).View()
+	if !strings.Contains(view, "Profile: staging") {
+		t.Fatalf("cancel should keep original profile\n%s", view)
+	}
+	if strings.Contains(view, "Default Profile\nCurrent session") {
+		t.Fatalf("default profile form should close on esc\n%s", view)
+	}
+	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
+		t.Fatalf("config file should not be persisted on cancel, stat error = %v", err)
+	}
+}
+
+func TestDefaultProfileSaveFailureKeepsActiveProfile(t *testing.T) {
+	t.Parallel()
+
+	workDir := t.TempDir()
+	configPath := filepath.Join(workDir, "as-directory")
+	if err := os.Mkdir(configPath, 0o700); err != nil {
+		t.Fatalf("Mkdir(%q) error = %v", configPath, err)
+	}
+	var model tea.Model = tui.NewModel(&app.Application{
+		Config: config.Effective{Profile: "staging"},
+		ConfigOptions: config.Options{
+			ConfigPath: configPath,
+			WorkDir:    workDir,
+			HomeDir:    t.TempDir(),
+			Env:        map[string]string{},
+		},
+		Registry: registry.NewBuilder().Finalize(),
+	})
+
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("prod")})
+	model, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatalf("default profile submit command = nil, want save command")
+	}
+	model, _ = model.Update(cmd())
+
+	view := model.(tui.Model).View()
+	for _, fragment := range []string{"Profile: staging", "Default Profile save failed:"} {
+		if !strings.Contains(view, fragment) {
+			t.Fatalf("failed default profile view missing %q\n%s", fragment, view)
+		}
 	}
 }
 

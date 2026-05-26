@@ -14,8 +14,9 @@ type Options struct {
 
 // Application is the explicit application wiring seam shared by surfaces.
 type Application struct {
-	Config   config.Effective
-	Registry registry.Registry
+	Config        config.Effective
+	ConfigOptions config.Options
+	Registry      registry.Registry
 }
 
 // New builds the minimal application scaffold, resolves configuration, and finalizes the registry.
@@ -34,8 +35,9 @@ func New(options Options) (*Application, error) {
 	}
 
 	return &Application{
-		Config:   effectiveConfig,
-		Registry: builder.Finalize(),
+		Config:        effectiveConfig,
+		ConfigOptions: options.Config,
+		Registry:      builder.Finalize(),
 	}, nil
 }
 

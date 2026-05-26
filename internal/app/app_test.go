@@ -43,6 +43,12 @@ func TestNewResolvesConfigurationAtBoot(t *testing.T) {
 	if application.Config.ConfigSource != config.SourceExplicit {
 		t.Fatalf("ConfigSource = %q, want %q", application.Config.ConfigSource, config.SourceExplicit)
 	}
+	if application.ConfigOptions.ConfigPath != "./exito.yaml" {
+		t.Fatalf("ConfigOptions.ConfigPath = %q, want original boot path", application.ConfigOptions.ConfigPath)
+	}
+	if application.ConfigOptions.Profile != "prod" {
+		t.Fatalf("ConfigOptions.Profile = %q, want original boot profile", application.ConfigOptions.Profile)
+	}
 }
 
 func TestNewWiresBootCapabilities(t *testing.T) {
