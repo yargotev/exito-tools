@@ -51,6 +51,7 @@ func TestRootHelpPaths(t *testing.T) {
 				"capabilities",
 				"orders",
 				"geo",
+				"tui",
 			} {
 				if !strings.Contains(rendered, fragment) {
 					t.Fatalf("help output missing %q\n%s", fragment, rendered)

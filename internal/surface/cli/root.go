@@ -15,6 +15,7 @@ import (
 	"github.com/yargotev/exito-tools/internal/domain/orders"
 	"github.com/yargotev/exito-tools/internal/execution"
 	"github.com/yargotev/exito-tools/internal/presenter"
+	tuisurface "github.com/yargotev/exito-tools/internal/surface/tui"
 )
 
 // Bootstrapper builds the application after Cobra has parsed CLI boot flags.
@@ -63,7 +64,27 @@ func NewRoot(bootstrap Bootstrapper) *cobra.Command {
 	command.AddCommand(newRunCommand(bootstrap, &options))
 	command.AddCommand(newOrdersCommand(bootstrap, &options))
 	command.AddCommand(newGeoCommand(bootstrap, &options))
+	command.AddCommand(newTUICommand(bootstrap, &options))
 	return command
+}
+
+func newTUICommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Command {
+	return &cobra.Command{
+		Use:   "tui",
+		Short: "Open the interactive TUI",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			application, err := bootstrap(appOptions(*options))
+			if err != nil {
+				return err
+			}
+
+			return tuisurface.Run(cmd.Context(), application, tuisurface.IO{
+				Input:  cmd.InOrStdin(),
+				Output: cmd.OutOrStdout(),
+			})
+		},
+	}
 }
 
 func newCapabilitiesCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Command {
