@@ -33,6 +33,7 @@ type Model struct {
 	paletteIndex   int
 	form           formState
 	profileForm    profileFormState
+	confirmation   confirmationState
 	task           taskState
 	taskCancel     context.CancelFunc
 	resultFilter   resultFilterState
@@ -78,6 +79,12 @@ type profileFormState struct {
 	Value  string
 }
 
+type confirmationState struct {
+	Active     bool
+	Definition capability.Definition
+	Input      capability.Input
+}
+
 // NewModel builds the initial TUI model from the bootstrapped application.
 func NewModel(application *app.Application) Model {
 	if application == nil {
@@ -116,6 +123,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if m.profileForm.Active {
 			return m.updateProfileForm(msg)
+		}
+
+		if m.confirmation.Active {
+			return m.updateConfirmation(msg)
 		}
 
 		if m.paletteOpen {
@@ -221,6 +232,19 @@ func (m Model) View() string {
 		builder.WriteString("Press enter to apply or esc to cancel.\n")
 	}
 
+	if m.confirmation.Active {
+		builder.WriteString("\nConfirm Action\n")
+		fmt.Fprintf(&builder, "Action: %s\n", m.confirmation.Definition.Title)
+		fmt.Fprintf(&builder, "Capability: %s\n", m.confirmation.Definition.ID)
+		if m.confirmation.Definition.Risk != "" {
+			fmt.Fprintf(&builder, "Risk: %s\n", m.confirmation.Definition.Risk)
+		}
+		if m.confirmation.Definition.Description != "" {
+			fmt.Fprintf(&builder, "Impact: %s\n", m.confirmation.Definition.Description)
+		}
+		builder.WriteString("Press y or enter to confirm. Press n or esc to cancel.\n")
+	}
+
 	if m.paletteOpen {
 		builder.WriteString("\nCommand Palette\n")
 		fmt.Fprintf(&builder, "Search: %s\n", m.paletteQuery)
@@ -261,7 +285,7 @@ func (m Model) updatePalette(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.form = newFormState(selected.ID, fields)
 			return m, nil
 		}
-		return m.startExecution(selected.ID, capability.Input{})
+		return m.confirmOrStartExecution(selected, capability.Input{})
 	case tea.KeyUp:
 		if m.paletteIndex > 0 {
 			m.paletteIndex--
@@ -327,8 +351,12 @@ func (m Model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		input := m.form.input()
 		capabilityID := m.form.CapabilityID
+		definition, ok := m.findDefinition(capabilityID)
 		m.form = formState{}
-		return m.startExecution(capabilityID, input)
+		if !ok {
+			return m.startExecution(capabilityID, input, false)
+		}
+		return m.confirmOrStartExecution(definition, input)
 	}
 
 	return m, nil
@@ -359,9 +387,51 @@ func (m Model) updateProfileForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) startExecution(capabilityID string, input capability.Input) (tea.Model, tea.Cmd) {
+func (m Model) updateConfirmation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.confirmation = confirmationState{}
+	case tea.KeyEnter:
+		prompt := m.confirmation
+		m.confirmation = confirmationState{}
+		return m.startExecution(prompt.Definition.ID, prompt.Input, true)
+	case tea.KeyCtrlC:
+		return m, tea.Quit
+	case tea.KeyRunes:
+		switch strings.ToLower(string(msg.Runes)) {
+		case "y":
+			prompt := m.confirmation
+			m.confirmation = confirmationState{}
+			return m.startExecution(prompt.Definition.ID, prompt.Input, true)
+		case "n":
+			m.confirmation = confirmationState{}
+		}
+	}
+
+	return m, nil
+}
+
+func (m Model) confirmOrStartExecution(definition capability.Definition, input capability.Input) (tea.Model, tea.Cmd) {
+	if !definition.RequiresConfirmation {
+		return m.startExecution(definition.ID, input, false)
+	}
+
+	m.paletteOpen = false
+	m.paletteQuery = ""
+	m.paletteIndex = 0
+	m.form = formState{}
+	m.confirmation = confirmationState{
+		Active:     true,
+		Definition: definition,
+		Input:      input,
+	}
+	return m, nil
+}
+
+func (m Model) startExecution(capabilityID string, input capability.Input, confirmed bool) (tea.Model, tea.Cmd) {
 	m.task = taskState{Status: taskLoading, CapabilityID: capabilityID}
 	m.resultFilter = resultFilterState{}
+	m.confirmation = confirmationState{}
 	m.paletteOpen = false
 	m.paletteQuery = ""
 	m.paletteIndex = 0
@@ -371,7 +441,7 @@ func (m Model) startExecution(capabilityID string, input capability.Input) (tea.
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	m.taskCancel = cancel
-	return m, m.executeAction(ctx, capabilityID, input)
+	return m, m.executeAction(ctx, capabilityID, input, confirmed)
 }
 
 func (m Model) cancelTask() Model {
@@ -386,17 +456,19 @@ func (m Model) cancelTask() Model {
 	m.paletteOpen = false
 	m.paletteQuery = ""
 	m.paletteIndex = 0
+	m.confirmation = confirmationState{}
 	m.resultFilter = resultFilterState{}
 	return m
 }
 
-func (m Model) executeAction(ctx context.Context, capabilityID string, input capability.Input) tea.Cmd {
+func (m Model) executeAction(ctx context.Context, capabilityID string, input capability.Input, confirmed bool) tea.Cmd {
 	return func() tea.Msg {
 		pipeline := execution.NewPipeline(m.registry)
 		envelope, err := pipeline.Execute(ctx, execution.ExecuteRequest{
 			CapabilityID: capabilityID,
 			Input:        input,
 			Profile:      profileLabel(m.profile),
+			Confirmed:    confirmed,
 		})
 		return actionExecutedMsg{envelope: envelope, err: err}
 	}
@@ -538,6 +610,15 @@ func (m Model) clampedPaletteIndex(length int) int {
 		return length - 1
 	}
 	return m.paletteIndex
+}
+
+func (m Model) findDefinition(capabilityID string) (capability.Definition, bool) {
+	for _, definition := range m.registry.All() {
+		if definition.ID == capabilityID {
+			return definition, true
+		}
+	}
+	return capability.Definition{}, false
 }
 
 func requiredStringFields(definition capability.Definition) []capability.InputField {

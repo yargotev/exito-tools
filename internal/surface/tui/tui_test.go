@@ -513,6 +513,141 @@ func TestInputFormDoesNotSubmitEmptyRequiredStringField(t *testing.T) {
 	}
 }
 
+func TestConfirmationRequiredActionShowsPromptBeforeExecution(t *testing.T) {
+	t.Parallel()
+
+	executions := 0
+	builder := registry.NewBuilder()
+	if err := builder.RegisterExecutable(capability.Executable{
+		Definition: capability.Definition{
+			ID:                   "orders.cancel",
+			Domain:               "orders",
+			Title:                "Cancel order",
+			Description:          "Cancels the selected order.",
+			Risk:                 capability.RiskSafeWrite,
+			RequiresConfirmation: true,
+			Audiences:            []capability.Audience{capability.AudiencePeople},
+			Visibility:           []capability.Visibility{capability.VisibilityCommandPalette},
+		},
+		Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
+			executions++
+			return capability.ExecutionResult{Data: map[string]any{"cancelled": true}}, nil
+		},
+	}); err != nil {
+		t.Fatalf("RegisterExecutable() error = %v", err)
+	}
+
+	var model tea.Model = tui.NewModel(&app.Application{Registry: builder.Finalize()})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	model, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil {
+		t.Fatalf("Update(enter) command = %#v, want nil while confirmation prompt opens", cmd)
+	}
+
+	view := model.(tui.Model).View()
+	for _, fragment := range []string{"Confirm Action", "Action: Cancel order", "Capability: orders.cancel", "Risk: safe-write", "Impact: Cancels the selected order.", "Press y or enter to confirm. Press n or esc to cancel."} {
+		if !strings.Contains(view, fragment) {
+			t.Fatalf("confirmation view missing %q\n%s", fragment, view)
+		}
+	}
+	if strings.Contains(view, "Command Palette") {
+		t.Fatalf("palette should close while confirmation prompt is active\n%s", view)
+	}
+	if executions != 0 {
+		t.Fatalf("executions = %d, want 0 before confirmation", executions)
+	}
+}
+
+func TestConfirmationPromptConfirmExecutesWithExplicitConfirmation(t *testing.T) {
+	t.Parallel()
+
+	builder := registry.NewBuilder()
+	if err := builder.RegisterExecutable(capability.Executable{
+		Definition: capability.Definition{
+			ID:                   "orders.cancel",
+			Domain:               "orders",
+			Title:                "Cancel order",
+			Risk:                 capability.RiskSafeWrite,
+			RequiresConfirmation: true,
+			Audiences:            []capability.Audience{capability.AudiencePeople},
+			Visibility:           []capability.Visibility{capability.VisibilityCommandPalette},
+		},
+		Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
+			return capability.ExecutionResult{Data: map[string]any{"cancelled": true}}, nil
+		},
+	}); err != nil {
+		t.Fatalf("RegisterExecutable() error = %v", err)
+	}
+
+	var model tea.Model = tui.NewModel(&app.Application{Registry: builder.Finalize()})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	if cmd == nil {
+		t.Fatalf("Update(y) command = nil, want execution command")
+	}
+
+	loadingView := model.(tui.Model).View()
+	if !strings.Contains(loadingView, "Running orders.cancel...") {
+		t.Fatalf("loading view missing running state\n%s", loadingView)
+	}
+	if strings.Contains(loadingView, "Confirm Action") {
+		t.Fatalf("confirmation prompt should close after confirm\n%s", loadingView)
+	}
+
+	model, _ = model.Update(cmd())
+	view := model.(tui.Model).View()
+	if !strings.Contains(view, "Success: orders.cancel") {
+		t.Fatalf("confirmed action should succeed through Pipeline\n%s", view)
+	}
+	if strings.Contains(view, "CONFIRMATION_REQUIRED") {
+		t.Fatalf("confirmed TUI action should not fail confirmation policy\n%s", view)
+	}
+}
+
+func TestConfirmationPromptCancelDoesNotExecute(t *testing.T) {
+	t.Parallel()
+
+	executions := 0
+	builder := registry.NewBuilder()
+	if err := builder.RegisterExecutable(capability.Executable{
+		Definition: capability.Definition{
+			ID:                   "orders.cancel",
+			Domain:               "orders",
+			Title:                "Cancel order",
+			Risk:                 capability.RiskSafeWrite,
+			RequiresConfirmation: true,
+			Audiences:            []capability.Audience{capability.AudiencePeople},
+			Visibility:           []capability.Visibility{capability.VisibilityCommandPalette},
+		},
+		Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
+			executions++
+			return capability.ExecutionResult{Data: nil}, nil
+		},
+	}); err != nil {
+		t.Fatalf("RegisterExecutable() error = %v", err)
+	}
+
+	var model tea.Model = tui.NewModel(&app.Application{Registry: builder.Finalize()})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	if cmd != nil {
+		t.Fatalf("Update(n) command = %#v, want nil when cancelling confirmation", cmd)
+	}
+
+	view := model.(tui.Model).View()
+	if strings.Contains(view, "Confirm Action") {
+		t.Fatalf("confirmation prompt should close after cancel\n%s", view)
+	}
+	if strings.Contains(view, "Running orders.cancel") || strings.Contains(view, "Success: orders.cancel") || strings.Contains(view, "Failure: orders.cancel") {
+		t.Fatalf("cancelled confirmation should not start task\n%s", view)
+	}
+	if executions != 0 {
+		t.Fatalf("executions = %d, want 0 after cancelling confirmation", executions)
+	}
+}
+
 func TestResultFilterRefinesLoadedTaskDataWithoutReexecution(t *testing.T) {
 	t.Parallel()
 
