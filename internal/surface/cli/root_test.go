@@ -441,6 +441,44 @@ func TestOrdersGetCommandRunsOrdersGetCapability(t *testing.T) {
 	}
 }
 
+func TestOrdersGetCommandPassesOrderTypeFlag(t *testing.T) {
+	t.Parallel()
+
+	builder := registry.NewBuilder()
+	var gotRequest capability.ExecutionRequest
+	if err := builder.RegisterExecutable(capability.Executable{
+		Definition: capability.Definition{
+			ID: orders.CapabilityGetID,
+			InputSchema: &capability.InputSchema{Fields: []capability.InputField{
+				{Name: "id", Type: capability.InputTypeString, Required: true},
+				{Name: "orderType", Type: capability.InputTypeString, Required: false},
+			}},
+		},
+		Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
+			gotRequest = request
+			return capability.ExecutionResult{Data: map[string]any{"orderId": request.Input["id"]}}, nil
+		},
+	}); err != nil {
+		t.Fatalf("RegisterExecutable() error = %v", err)
+	}
+
+	root := clisurface.NewRoot(func(options app.Options) (*app.Application, error) {
+		return &app.Application{Config: config.Effective{Profile: options.Config.Profile}, Registry: builder.Finalize()}, nil
+	})
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stdout)
+	root.SetArgs([]string{"--profile", "prod", "orders", "get", "--id", "A123", "--order-type", "CarullaEcomm"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v\n%s", err, stdout.String())
+	}
+
+	if gotRequest.Input["id"] != "A123" || gotRequest.Input["orderType"] != "CarullaEcomm" {
+		t.Fatalf("handler input = %#v, want id A123 and orderType CarullaEcomm", gotRequest.Input)
+	}
+}
+
 func TestOrdersGetCommandRequiresID(t *testing.T) {
 	t.Parallel()
 

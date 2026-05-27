@@ -102,6 +102,43 @@ func TestHTTPGetterPostsRequestAndMapsProviderResponse(t *testing.T) {
 	}
 }
 
+func TestHTTPGetterUsesProvidedGEOMSOrderType(t *testing.T) {
+	t.Parallel()
+
+	var gotBody struct {
+		Filters struct {
+			OrderNumber string `json:"orderNumber"`
+			OrderType   string `json:"orderType"`
+		} `json:"filters"`
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/findOrders":
+			if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+				t.Fatalf("Decode(request body) error = %v", err)
+			}
+			_, _ = w.Write([]byte(`{"data":[{"orderNumber":"A123","statusOrderMax":"7500","createdDate":"2026-05-26T00:00:00Z"}]}`))
+		case "/getOrder":
+			_, _ = w.Write([]byte(`{"data":{}}`))
+		case "/findItemsByOrder":
+			_, _ = w.Write([]byte(`{"data":[]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	getter := orders.NewHTTPGetter(orders.HTTPGetterConfig{BaseURL: server.URL, Token: "token-123"}, server.Client())
+	if _, err := getter.Get(context.Background(), orders.GetInput{ID: "A123", OrderType: "CarullaEcomm"}); err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+
+	if gotBody.Filters.OrderNumber != "A123" || gotBody.Filters.OrderType != "CarullaEcomm" {
+		t.Fatalf("request body = %#v, want Carulla GEOMS order filter", gotBody)
+	}
+}
+
 func TestHTTPGetterFetchesGEOMSTokenAndReusesUntilExpiry(t *testing.T) {
 	t.Parallel()
 

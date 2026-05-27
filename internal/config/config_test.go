@@ -650,6 +650,26 @@ func TestResolveOrdersProviderConfiguration(t *testing.T) {
 		}
 	})
 
+	t.Run("prod profile reads PDN GEOMS credential bundle", func(t *testing.T) {
+		t.Parallel()
+
+		resolved := resolveForTest(t, config.Options{
+			Profile: "prod",
+			Env: map[string]string{ // #nosec G101 -- test-only fake GEOMS credential bundle.
+				"EXITO_ORDERS_BASE_URL": "https://geoms.example.test/apioms/api/v1/scope/geoms",
+				"GEOMS_CREDENTIALS_QA":  `{ 'client_id': 'qa-client-id', 'client_secret': 'qa-secret', 'scope': 'qa-scope' }`,
+				"GEOMS_CREDENTIALS_PDN": `{ 'client_id': 'pdn-client-id', 'client_secret': 'pdn-secret', 'scope': 'pdn-scope' }`,
+			},
+		})
+
+		if !resolved.OrdersProvider.Configured {
+			t.Fatalf("OrdersProvider.Configured = false, want true")
+		}
+		if resolved.OrdersProvider.ClientID != "pdn-client-id" || resolved.OrdersProvider.ClientSecret != "pdn-secret" || resolved.OrdersProvider.Scope != "pdn-scope" {
+			t.Fatalf("GEOMS PDN credentials = (%q,%q,%q), want PDN values", resolved.OrdersProvider.ClientID, resolved.OrdersProvider.ClientSecret, resolved.OrdersProvider.Scope)
+		}
+	})
+
 	t.Run("process environment wins over profile dotenv and general dotenv", func(t *testing.T) {
 		t.Parallel()
 

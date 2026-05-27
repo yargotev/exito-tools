@@ -95,9 +95,9 @@ The system MUST model credential source precedence separately from YAML configur
 - THEN real process environment has highest priority
 - AND `.env.staging` is considered before `.env`
 
-### Requirement: Orders provider configuration resolves from credential layers
+### Requirement: Orders provider configuration
 
-The system MUST resolve Orders provider base URL and token values from credential layers using process environment first, profile-specific dotenv second, and general dotenv third.
+The Configuration Resolver MUST resolve Orders GEOMS configuration from non-sensitive YAML base URLs and sensitive environment/dotenv credentials, using process environment first, profile-specific dotenv second, and general dotenv third.
 
 #### Scenario: Environment values configure Orders provider
 
@@ -108,6 +108,21 @@ The system MUST resolve Orders provider base URL and token values from credentia
 - **And** `OrdersProvider.BaseURL` is `https://orders.example.test`
 - **And** the Orders token is marked as set
 
+#### Scenario: GEOMS credential bundle configures Orders
+
+- **Given** `EXITO_ORDERS_BASE_URL` is set
+- **And** `GEOMS_CREDENTIALS_QA` contains `client_id`, `client_secret`, and `scope`
+- **When** configuration is resolved for the `staging` profile
+- **Then** `OrdersProvider.Configured` is true
+- **And** the client ID, secret, and scope are available to application wiring but omitted from JSON serialization
+
+#### Scenario: Prod profile reads PDN GEOMS bundle
+
+- **Given** `EXITO_ORDERS_BASE_URL` is set
+- **And** `GEOMS_CREDENTIALS_PDN` contains `client_id`, `client_secret`, and `scope`
+- **When** configuration is resolved for the `prod` profile
+- **Then** `OrdersProvider.Configured` is true
+
 #### Scenario: Environment token wins over dotenv token
 
 - **Given** `.env.staging` contains `EXITO_ORDERS_BASE_URL` and `EXITO_ORDERS_TOKEN`
@@ -116,7 +131,7 @@ The system MUST resolve Orders provider base URL and token values from credentia
 - **Then** the Orders base URL comes from `.env.staging`
 - **And** the Orders token comes from the process environment
 
-#### Scenario: Missing Orders token keeps provider unconfigured
+#### Scenario: Missing Orders token and GEOMS credentials keeps provider unconfigured
 
 - **Given** only `EXITO_ORDERS_BASE_URL` is present
 - **When** configuration is resolved

@@ -49,9 +49,9 @@ The CLI SHALL expose `exito geo geocode-address --city <city> --address <address
 - **WHEN** either `--city` or `--address` is omitted
 - **THEN** Cobra rejects the command before emitting a JSON envelope
 
-### Requirement: Orders get command is exposed explicitly
+### Requirement: Orders get command
 
-The CLI Surface MUST expose `exito orders get --id <order-id>` as an explicit domain command for the `orders.get` Capability.
+The CLI Surface MUST expose `exito orders get --id <order-id>` as an explicit domain command for the `orders.get` Capability and MAY accept an optional GEOMS order-type filter.
 
 #### Scenario: Orders get runs through the shared pipeline
 
@@ -60,6 +60,14 @@ The CLI Surface MUST expose `exito orders get --id <order-id>` as an explicit do
 - THEN the command executes the `orders.get` Capability through the shared execution Pipeline
 - AND stdout contains a standard JSON Envelope
 - AND `meta.capabilityId` is `orders.get`
+
+#### Scenario: Orders get supports Carulla order type
+
+- **GIVEN** the Application has registered `orders.get`
+- **WHEN** a user runs `exito orders get --id A123 --order-type CarullaEcomm`
+- **THEN** the command executes the `orders.get` Capability through the shared execution Pipeline
+- **AND** the Capability input contains `id` equal to `A123`
+- **AND** the Capability input contains `orderType` equal to `CarullaEcomm`
 
 #### Scenario: Orders get requires an ID flag
 
