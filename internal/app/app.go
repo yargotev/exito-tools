@@ -40,6 +40,9 @@ func New(options Options) (*Application, error) {
 	if err := builder.RegisterExecutable(catalog.NewSearchProductsCapability(catalogSearcher(effectiveConfig))); err != nil {
 		return nil, err
 	}
+	if err := builder.RegisterExecutable(catalog.NewIntelligentSearchProductsCapability(catalogIntelligentSearcher(effectiveConfig))); err != nil {
+		return nil, err
+	}
 
 	return &Application{
 		Config:        effectiveConfig,
@@ -104,4 +107,18 @@ func catalogBrandSearcher(provider config.VTEXCatalogBrandProvider) catalog.Sear
 		return catalog.UnavailableSearcher{}
 	}
 	return catalog.NewHTTPSearcher(catalog.HTTPSearcherConfig{BaseURL: provider.BaseURL}, nil)
+}
+
+func catalogIntelligentSearcher(effectiveConfig config.Effective) catalog.IntelligentSearchProductsSearcher {
+	return catalog.NewIntelligentBrandSearcher(
+		catalogIntelligentBrandSearcher(effectiveConfig.VTEXIntelligentSearchProvider.Exito),
+		catalogIntelligentBrandSearcher(effectiveConfig.VTEXIntelligentSearchProvider.Carulla),
+	)
+}
+
+func catalogIntelligentBrandSearcher(provider config.VTEXCatalogBrandProvider) catalog.IntelligentSearchProductsSearcher {
+	if !provider.Configured {
+		return catalog.UnavailableIntelligentSearcher{}
+	}
+	return catalog.NewHTTPIntelligentSearcher(catalog.HTTPIntelligentSearcherConfig{BaseURL: provider.BaseURL}, nil)
 }

@@ -175,6 +175,7 @@ func newCatalogCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Comm
 		Short: "Run Catalog Domain commands",
 	}
 	command.AddCommand(newCatalogSearchProductsCommand(bootstrap, options))
+	command.AddCommand(newCatalogIntelligentSearchCommand(bootstrap, options))
 	return command
 }
 
@@ -242,6 +243,117 @@ func newCatalogSearchProductsCommand(bootstrap Bootstrapper, options *rootOption
 	command.Flags().StringVar(&order, "order", "", "VTEX O sorting value, such as OrderByPriceASC")
 	command.Flags().IntVar(&from, "from", 0, "Initial result index")
 	command.Flags().IntVar(&to, "to", 9, "Final result index; VTEX allows at most 50 results per request")
+	return command
+}
+
+func newCatalogIntelligentSearchCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Command {
+	command := &cobra.Command{
+		Use:   "intelligent-search",
+		Short: "Run VTEX Intelligent Search commands",
+	}
+	command.AddCommand(newCatalogIntelligentSearchProductsCommand(bootstrap, options))
+	return command
+}
+
+func newCatalogIntelligentSearchProductsCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Command {
+	var brand string
+	var tradePolicy string
+	var text string
+	var by string
+	var values []string
+	var query string
+	var facets []string
+	var page int
+	var count int
+	var sort string
+	var locale string
+	var hideUnavailable bool
+	var includeUnavailable bool
+	var simulationBehavior string
+	var cookies []string
+
+	command := &cobra.Command{
+		Use:   "products",
+		Short: "Search VTEX Intelligent Search products",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			application, err := bootstrap(appOptions(*options))
+			if err != nil {
+				return err
+			}
+
+			input := capability.Input{
+				"brand":       brand,
+				"tradePolicy": tradePolicy,
+				"page":        page,
+				"count":       count,
+			}
+			if text != "" {
+				input["text"] = text
+			}
+			if by != "" {
+				input["by"] = by
+			}
+			if len(values) > 0 {
+				input["value"] = values
+			}
+			if query != "" {
+				input["query"] = query
+			}
+			if len(facets) > 0 {
+				input["facet"] = facets
+			}
+			if sort != "" {
+				input["sort"] = sort
+			}
+			if locale != "" {
+				input["locale"] = locale
+			}
+			if hideUnavailable || includeUnavailable {
+				input["hideUnavailable"] = hideUnavailable && !includeUnavailable
+			}
+			if simulationBehavior != "" {
+				input["simulationBehavior"] = simulationBehavior
+			}
+			if len(cookies) > 0 {
+				input["cookie"] = cookies
+			}
+
+			pipeline := execution.NewPipeline(application.Registry)
+			envelope, err := pipeline.Execute(cmd.Context(), execution.ExecuteRequest{
+				CapabilityID:  catalog.CapabilityIntelligentSearchProductsID,
+				Input:         input,
+				Profile:       application.Config.Profile,
+				CorrelationID: options.correlationID,
+			})
+			if err != nil {
+				return err
+			}
+
+			return writeExecutionEnvelope(cmd.OutOrStdout(), envelope)
+		},
+	}
+
+	command.Flags().StringVar(&brand, "brand", "exito", "VTEX brand account to query: exito or carulla")
+	command.Flags().StringVar(&tradePolicy, "trade-policy", "", "Required VTEX trade policy/sales channel")
+	command.Flags().StringVar(&text, "text", "", "Natural-language search text")
+	command.Flags().StringVar(&by, "by", "", "Typed lookup mode: product-id, sku-id, ean, sku-reference, slug, or id")
+	command.Flags().StringArrayVar(&values, "value", nil, "Lookup value used with --by; repeat for same-type multi-ID lookup")
+	command.Flags().StringVar(&query, "query", "", "Raw Intelligent Search query expression")
+	command.Flags().StringArrayVar(&facets, "facet", nil, "Additional path facet as key=value; repeat for multiple facets")
+	command.Flags().IntVar(&page, "page", 1, "Result page")
+	command.Flags().IntVar(&count, "count", 24, "Products per page")
+	command.Flags().StringVar(&sort, "sort", "", "Sort value, such as price:asc or orders:desc; empty means relevance")
+	command.Flags().StringVar(&locale, "locale", "", "BCP 47 locale")
+	command.Flags().BoolVar(&hideUnavailable, "hide-unavailable", false, "Hide unavailable products")
+	command.Flags().BoolVar(&includeUnavailable, "include-unavailable", false, "Include unavailable products")
+	command.Flags().StringVar(&simulationBehavior, "simulation-behavior", "", "Simulation behavior: default, skip, or only1P")
+	command.Flags().StringArrayVar(&cookies, "cookie", nil, "VTEX cookie string for advanced diagnostics; values are redacted from output")
+	_ = command.MarkFlagRequired("trade-policy")
+	command.MarkFlagsMutuallyExclusive("hide-unavailable", "include-unavailable")
+	command.MarkFlagsMutuallyExclusive("text", "query")
+	command.MarkFlagsMutuallyExclusive("text", "by")
+	command.MarkFlagsMutuallyExclusive("query", "by")
 	return command
 }
 

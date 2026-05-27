@@ -110,3 +110,15 @@ CARULLA_VTEX_CATALOG_BASE_URL_PROD=https://www.carulla.com
 ```
 
 VTEX Catalog product search uses public storefront Search API endpoints and does not require VTEX app credentials. The resolver chooses QA variables for non-production profiles and production variables for `prod`/`production`/`pdn` profiles. Environment and dotenv values override YAML base URLs.
+
+### VTEX Intelligent Search
+
+```env
+# Public Intelligent Search endpoints can also live in YAML profiles.<profile>.vtexIntelligentSearch.<brand>.baseUrl.
+EXITO_VTEX_INTELLIGENT_SEARCH_BASE_URL_QA=https://exito.vtexcommercestable.com.br
+EXITO_VTEX_INTELLIGENT_SEARCH_BASE_URL_PROD=https://www.exito.com
+CARULLA_VTEX_INTELLIGENT_SEARCH_BASE_URL_QA=https://carulla.vtexcommercestable.com.br
+CARULLA_VTEX_INTELLIGENT_SEARCH_BASE_URL_PROD=https://www.carulla.com
+```
+
+VTEX Intelligent Search product search uses the public storefront/search-engine REST API and does not require VTEX app credentials for the first read-only slice. Caller-supplied `vtex_segment` or `vtex_session` cookies are execution inputs only; do not store them in committed YAML or documentation examples with real values.

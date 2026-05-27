@@ -991,6 +991,79 @@ func TestOrdersGetVTEXCommandRequiresID(t *testing.T) {
 	}
 }
 
+func TestCatalogIntelligentSearchProductsCommandRunsCapability(t *testing.T) {
+	root := clisurface.NewRoot(func(options app.Options) (*app.Application, error) {
+		builder := registry.NewBuilder()
+		if err := builder.RegisterExecutable(capability.Executable{
+			Definition: catalog.IntelligentSearchProductsDefinition(),
+			Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
+				if request.Input["brand"] != "carulla" || request.Input["tradePolicy"] != "1" || request.Input["by"] != "sku-id" {
+					t.Fatalf("input = %#v, want intelligent search flags", request.Input)
+				}
+				values, ok := request.Input["value"].([]string)
+				if !ok || len(values) != 2 || values[0] != "123" || values[1] != "456" {
+					t.Fatalf("value = %#v, want repeated values", request.Input["value"])
+				}
+				facets, ok := request.Input["facet"].([]string)
+				if !ok || len(facets) != 1 || facets[0] != "category-1=lacteos" {
+					t.Fatalf("facet = %#v", request.Input["facet"])
+				}
+				if request.Input["hideUnavailable"] != true || request.Input["simulationBehavior"] != "skip" {
+					t.Fatalf("availability input = %#v", request.Input)
+				}
+				return capability.ExecutionResult{Data: catalog.IntelligentSearchProductsResult{Brand: "carulla", Query: "sku.id:123;456", Count: 12}}, nil
+			},
+		}); err != nil {
+			t.Fatalf("RegisterExecutable() error = %v", err)
+		}
+		return &app.Application{Config: config.Effective{Profile: "staging"}, ConfigOptions: options.Config, Registry: builder.Finalize()}, nil
+	})
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stdout)
+	root.SetArgs([]string{"--correlation-id", "corr-int", "catalog", "intelligent-search", "products", "--brand", "carulla", "--trade-policy", "1", "--by", "sku-id", "--value", "123", "--value", "456", "--facet", "category-1=lacteos", "--count", "12", "--hide-unavailable", "--simulation-behavior", "skip"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	var got struct {
+		OK   bool `json:"ok"`
+		Data struct {
+			Brand string `json:"brand"`
+			Query string `json:"query"`
+		} `json:"data"`
+		Meta struct {
+			CorrelationID string `json:"correlationId"`
+			CapabilityID  string `json:"capabilityId"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("intelligent search output is not JSON: %v\n%s", err, stdout.String())
+	}
+	if !got.OK || got.Data.Brand != "carulla" || got.Data.Query != "sku.id:123;456" {
+		t.Fatalf("output = %#v, want successful intelligent search result", got)
+	}
+	if got.Meta.CorrelationID != "corr-int" || got.Meta.CapabilityID != catalog.CapabilityIntelligentSearchProductsID {
+		t.Fatalf("metadata = %#v, want intelligent search capability", got.Meta)
+	}
+}
+
+func TestCatalogIntelligentSearchProductsCommandRequiresTradePolicy(t *testing.T) {
+	root := clisurface.NewRoot(app.New)
+	var output bytes.Buffer
+	root.SetOut(&output)
+	root.SetErr(&output)
+	root.SetArgs([]string{"catalog", "intelligent-search", "products", "--text", "leche"})
+
+	if err := root.Execute(); err == nil {
+		t.Fatalf("Execute() error = nil, want missing required flag error")
+	}
+	if strings.Contains(output.String(), "{\"ok\"") {
+		t.Fatalf("missing flag error should not emit JSON envelope\n%s", output.String())
+	}
+}
+
 func TestCatalogSearchProductsCommandRunsCapability(t *testing.T) {
 	root := clisurface.NewRoot(func(options app.Options) (*app.Application, error) {
 		builder := registry.NewBuilder()

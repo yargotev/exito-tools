@@ -983,6 +983,47 @@ func TestVTEXOMSCredentialsAreOmittedFromEffectiveJSON(t *testing.T) {
 	}
 }
 
+func TestResolveVTEXIntelligentSearchProviderConfiguration(t *testing.T) {
+	t.Parallel()
+
+	t.Run("staging resolves Exito intelligent search YAML base URL", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		writeTextFile(t, filepath.Join(workDir, "exito.yaml"), `defaultProfile: staging
+profiles:
+  staging:
+    vtexIntelligentSearch:
+      exito:
+        baseUrl: https://exito.vtexcommercestable.com.br
+`)
+
+		resolved := resolveForTest(t, config.Options{WorkDir: workDir, Env: map[string]string{}})
+		provider := resolved.VTEXIntelligentSearchProvider.Exito
+		if !provider.Configured {
+			t.Fatalf("Exito VTEX Intelligent Search provider should be configured: %#v", provider)
+		}
+		if provider.BaseURL != "https://exito.vtexcommercestable.com.br" || provider.BaseURLSource != config.SourceConfigFile {
+			t.Fatalf("base URL = (%q,%q), want YAML config-file", provider.BaseURL, provider.BaseURLSource)
+		}
+	})
+
+	t.Run("prod resolves Carulla intelligent search environment base URL", func(t *testing.T) {
+		t.Parallel()
+
+		resolved := resolveForTest(t, config.Options{
+			Profile: "prod",
+			Env: map[string]string{
+				"CARULLA_VTEX_INTELLIGENT_SEARCH_BASE_URL_PROD": "https://www.carulla.com",
+			},
+		})
+		provider := resolved.VTEXIntelligentSearchProvider.Carulla
+		if !provider.Configured || provider.BaseURL != "https://www.carulla.com" || provider.BaseURLSource != config.SourceEnvironment {
+			t.Fatalf("Carulla VTEX Intelligent Search provider = %#v, want configured prod environment value", provider)
+		}
+	})
+}
+
 func TestResolveVTEXCatalogProviderConfiguration(t *testing.T) {
 	t.Parallel()
 
