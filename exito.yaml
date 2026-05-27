@@ -1,0 +1,7 @@
+defaultProfile: staging
+profiles:
+  staging:
+    geo:
+      baseUrl: https://sitidataws.sitimapa.co
+    orders:
+      baseUrl: https://orders.example.test
