@@ -89,11 +89,11 @@ func TestNewWiresConfiguredGeoHTTPGeocoder(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotRequestID = r.Header.Get(httpclient.HeaderRequestID)
 		gotCorrelationID = r.Header.Get(httpclient.HeaderCorrelationID)
-		if r.URL.Path != "/geocode-address" {
-			t.Fatalf("request path = %q, want /geocode-address", r.URL.Path)
+		if r.URL.Path != "/api/multizonificador/geocoder/" {
+			t.Fatalf("request path = %q, want /api/multizonificador/geocoder/", r.URL.Path)
 		}
-		if r.Header.Get("Authorization") != "Bearer token-123" {
-			t.Fatalf("Authorization = %q, want bearer token", r.Header.Get("Authorization"))
+		if r.Header.Get("Authorization") != "Token token-123" {
+			t.Fatalf("Authorization = %q, want token auth", r.Header.Get("Authorization"))
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"message":"ok","success":true,"data":{"latitude":"4.1","longitude":"-74.1","estado":"M","dirtrad":"NORMALIZED","barrio":"BARRIO","coddane":"11001"}}`))

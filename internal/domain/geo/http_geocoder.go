@@ -17,6 +17,7 @@ type HTTPGeocoderConfig struct {
 // HTTPGeocoder calls the configured Geo provider and maps its DTO to domain output.
 type HTTPGeocoder struct {
 	client httpclient.Client
+	token  string
 }
 
 // NewHTTPGeocoder creates a Geo provider-backed geocoder.
@@ -27,6 +28,7 @@ func NewHTTPGeocoder(config HTTPGeocoderConfig, client *http.Client) HTTPGeocode
 			Token:   config.Token,
 			Client:  client,
 		}),
+		token: config.Token,
 	}
 }
 
@@ -39,13 +41,14 @@ func (g HTTPGeocoder) GeocodeAddress(ctx context.Context, input GeocodeAddressIn
 		}
 	}
 
-	request, err := g.client.NewJSONRequest(ctx, http.MethodPost, "/geocode-address", geoProviderRequest(input))
+	request, err := g.client.NewJSONRequest(ctx, http.MethodPost, "/api/multizonificador/geocoder/", geoProviderRequest(input))
 	if err != nil {
 		return GeocodeAddressResult{}, capability.StructuredError{
 			Code:    ErrorGeoNotConfigured,
 			Message: "Geo provider base URL is invalid.",
 		}
 	}
+	request.Header.Set("Authorization", "Token "+g.token)
 
 	response, err := g.client.Do(request)
 	if err != nil {

@@ -38,7 +38,7 @@ Geocodes a city/address pair using the configured Geo provider and returns the n
 
 ## Provider Request
 
-When `EXITO_GEO_BASE_URL` and `EXITO_GEO_TOKEN` are configured, Exito Tools sends a `POST` request to `<EXITO_GEO_BASE_URL>/geocode-address` with a bearer token and JSON body:
+When `EXITO_GEO_BASE_URL` and `EXITO_GEO_TOKEN` are configured, Exito Tools sends a `POST` request to `<EXITO_GEO_BASE_URL>/api/multizonificador/geocoder/` with token authentication and JSON body:
 
 ```json
 {

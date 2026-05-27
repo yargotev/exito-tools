@@ -2,3 +2,6 @@
 .env.*
 !.env.example
 .atl/.skill-registry.cache.json
+
+# Local manual test outputs
+results/

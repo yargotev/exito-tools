@@ -58,11 +58,11 @@ func TestHTTPGeocoderPostsRequestAndMapsProviderResponse(t *testing.T) {
 		t.Fatalf("GeocodeAddress() error = %v", err)
 	}
 
-	if gotPath != "/geocode-address" {
-		t.Fatalf("request path = %q, want /geocode-address", gotPath)
+	if gotPath != "/api/multizonificador/geocoder/" {
+		t.Fatalf("request path = %q, want /api/multizonificador/geocoder/", gotPath)
 	}
-	if gotAuth != "Bearer token-123" {
-		t.Fatalf("Authorization = %q, want bearer token", gotAuth)
+	if gotAuth != "Token token-123" {
+		t.Fatalf("Authorization = %q, want token auth", gotAuth)
 	}
 	if gotRequestID != "req_geo" {
 		t.Fatalf("%s = %q, want req_geo", httpclient.HeaderRequestID, gotRequestID)
