@@ -9,11 +9,27 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/yargotev/exito-tools/internal/app"
 	"github.com/yargotev/exito-tools/internal/capability"
 	"github.com/yargotev/exito-tools/internal/config"
 	"github.com/yargotev/exito-tools/internal/execution"
 	"github.com/yargotev/exito-tools/internal/registry"
+)
+
+var (
+	mochaBase     = lipgloss.Color("#1e1e2e")
+	mochaSubtext  = lipgloss.Color("#a6adc8")
+	mochaLavender = lipgloss.Color("#b4befe")
+	mochaMauve    = lipgloss.Color("#cba6f7")
+	mochaGreen    = lipgloss.Color("#a6e3a1")
+	mochaYellow   = lipgloss.Color("#f9e2af")
+	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(mochaMauve).Background(mochaBase).Padding(0, 1)
+	sectionStyle  = lipgloss.NewStyle().Bold(true).Foreground(mochaLavender)
+	selectedStyle = lipgloss.NewStyle().Bold(true).Foreground(mochaBase).Background(mochaLavender).Padding(0, 1)
+	pillStyle     = lipgloss.NewStyle().Bold(true).Foreground(mochaGreen)
+	mutedStyle    = lipgloss.NewStyle().Foreground(mochaSubtext)
+	warnStyle     = lipgloss.NewStyle().Foreground(mochaYellow)
 )
 
 // IO contains terminal streams for the TUI Surface.
@@ -29,6 +45,7 @@ type Model struct {
 	configOptions  config.Options
 	profile        string
 	primaryActions []capability.Definition
+	primaryIndex   int
 	paletteActions []capability.Definition
 	paletteOpen    bool
 	paletteQuery   string
@@ -123,6 +140,8 @@ func (m Model) Init() tea.Cmd {
 // Update handles foundational navigation keys.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		return m, nil
 	case tea.KeyMsg:
 		if m.task.Status == taskLoading && msg.Type == tea.KeyEsc {
 			return m.cancelTask(), nil
@@ -155,6 +174,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+c", "q":
 			return m, tea.Quit
+		case "up", "k":
+			m.movePrimary(-1)
+		case "down", "j":
+			m.movePrimary(1)
+		case "enter":
+			return m.selectPrimaryAction()
 		case "/":
 			m.paletteOpen = true
 			m.paletteQuery = ""
@@ -213,19 +238,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// View renders the initial task-first TUI shell.
+// View renders the task-first TUI shell.
 func (m Model) View() string {
 	var builder strings.Builder
-	builder.WriteString("Exito Tools TUI\n")
-	fmt.Fprintf(&builder, "Profile: %s\n", profileLabel(m.profile))
-	fmt.Fprintf(&builder, "Primary actions: %d\n", len(m.primaryActions))
+	builder.WriteString(titleStyle.Render("Exito Tools TUI"))
+	builder.WriteString("\n")
+	fmt.Fprintf(&builder, "%s %s\n", mutedStyle.Render("Profile:"), pillStyle.Render(profileLabel(m.profile)))
+	fmt.Fprintf(&builder, "%s %d\n", mutedStyle.Render("Primary actions:"), len(m.primaryActions))
+	builder.WriteString(mutedStyle.Render("Navigate with ↑/↓ or j/k, press enter to run, / for palette."))
+	builder.WriteString("\n\n")
 
-	for _, definition := range m.primaryActions {
-		fmt.Fprintf(&builder, "- %s (%s)\n", definition.Title, definition.ID)
+	if len(m.primaryActions) == 0 {
+		builder.WriteString(warnStyle.Render("No primary actions available."))
+		builder.WriteString("\n")
+	}
+	for index, definition := range m.primaryActions {
+		line := fmt.Sprintf("  %s (%s)", definition.Title, definition.ID)
+		if index == m.clampedPrimaryIndex() {
+			line = selectedStyle.Render("› " + definition.Title + " (" + definition.ID + ")")
+		}
+		fmt.Fprintf(&builder, "%s\n", line)
 	}
 
 	if m.task.Status != taskIdle {
-		builder.WriteString("\nTask\n")
+		builder.WriteString("\n")
+		builder.WriteString(sectionStyle.Render("Task"))
+		builder.WriteString("\n")
 		switch m.task.Status {
 		case taskLoading:
 			fmt.Fprintf(&builder, "Running %s...\n", m.task.CapabilityID)
@@ -243,7 +281,9 @@ func (m Model) View() string {
 	}
 
 	if m.form.Active {
-		builder.WriteString("\nInput Form\n")
+		builder.WriteString("\n")
+		builder.WriteString(sectionStyle.Render("Input Form"))
+		builder.WriteString("\n")
 		fmt.Fprintf(&builder, "Action: %s\n", m.form.CapabilityID)
 		for index, field := range m.form.Fields {
 			prefix := " "
@@ -256,24 +296,32 @@ func (m Model) View() string {
 	}
 
 	if m.profileForm.Active {
-		builder.WriteString("\nSession Profile\n")
+		builder.WriteString("\n")
+		builder.WriteString(sectionStyle.Render("Session Profile"))
+		builder.WriteString("\n")
 		fmt.Fprintf(&builder, "Current: %s\n", profileLabel(m.profile))
 		fmt.Fprintf(&builder, "> New profile: %s\n", m.profileForm.Value)
 		builder.WriteString("Press enter to apply or esc to cancel.\n")
 	}
 
 	if m.defaultProfile.Active {
-		builder.WriteString("\nDefault Profile\n")
+		builder.WriteString("\n")
+		builder.WriteString(sectionStyle.Render("Default Profile"))
+		builder.WriteString("\n")
 		fmt.Fprintf(&builder, "Current session: %s\n", profileLabel(m.profile))
 		fmt.Fprintf(&builder, "> Save default as: %s\n", m.defaultProfile.Value)
 		builder.WriteString("Press enter to save or esc to cancel.\n")
 	} else if m.defaultProfile.Status != "" {
-		builder.WriteString("\nDefault Profile\n")
+		builder.WriteString("\n")
+		builder.WriteString(sectionStyle.Render("Default Profile"))
+		builder.WriteString("\n")
 		fmt.Fprintf(&builder, "%s\n", m.defaultProfile.Status)
 	}
 
 	if m.confirmation.Active {
-		builder.WriteString("\nConfirm Action\n")
+		builder.WriteString("\n")
+		builder.WriteString(sectionStyle.Render("Confirm Action"))
+		builder.WriteString("\n")
 		fmt.Fprintf(&builder, "Action: %s\n", m.confirmation.Definition.Title)
 		fmt.Fprintf(&builder, "Capability: %s\n", m.confirmation.Definition.ID)
 		if m.confirmation.Definition.Risk != "" {
@@ -286,7 +334,9 @@ func (m Model) View() string {
 	}
 
 	if m.paletteOpen {
-		builder.WriteString("\nCommand Palette\n")
+		builder.WriteString("\n")
+		builder.WriteString(sectionStyle.Render("Command Palette"))
+		builder.WriteString("\n")
 		fmt.Fprintf(&builder, "Search: %s\n", m.paletteQuery)
 		matches := m.filteredPaletteActions()
 		if len(matches) == 0 {
@@ -302,7 +352,10 @@ func (m Model) View() string {
 		builder.WriteString("Press esc to close.\n")
 	}
 
-	builder.WriteString("\nPress p to change session profile. Press d to save default profile. Press q to quit.\n")
+	builder.WriteString("\n")
+	builder.WriteString(mutedStyle.Render("Keys: j/k or arrows navigate • enter run/select • / palette • p session profile • d default profile • f filter results • esc cancel/close • q quit"))
+	builder.WriteString("\n")
+	builder.WriteString("Press p to change session profile. Press d to save default profile. Press q to quit.\n")
 	return builder.String()
 }
 
@@ -319,7 +372,7 @@ func (m Model) updatePalette(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		selected := matches[m.clampedPaletteIndex(len(matches))]
 		m.paletteIndex = m.clampedPaletteIndex(len(matches))
-		if fields := requiredStringFields(selected); len(fields) > 0 {
+		if fields := stringFields(selected); len(fields) > 0 {
 			m.paletteOpen = false
 			m.paletteQuery = ""
 			m.form = newFormState(selected.ID, fields)
@@ -327,13 +380,9 @@ func (m Model) updatePalette(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m.confirmOrStartExecution(selected, capability.Input{})
 	case tea.KeyUp:
-		if m.paletteIndex > 0 {
-			m.paletteIndex--
-		}
+		m.movePalette(-1)
 	case tea.KeyDown:
-		if m.paletteIndex < len(m.filteredPaletteActions())-1 {
-			m.paletteIndex++
-		}
+		m.movePalette(1)
 	case tea.KeyBackspace:
 		if len(m.paletteQuery) > 0 {
 			runes := []rune(m.paletteQuery)
@@ -341,8 +390,15 @@ func (m Model) updatePalette(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.paletteIndex = m.clampedPaletteIndex(len(m.filteredPaletteActions()))
 	case tea.KeyRunes:
-		m.paletteQuery += string(msg.Runes)
-		m.paletteIndex = m.clampedPaletteIndex(len(m.filteredPaletteActions()))
+		switch string(msg.Runes) {
+		case "j":
+			m.movePalette(1)
+		case "k":
+			m.movePalette(-1)
+		default:
+			m.paletteQuery += string(msg.Runes)
+			m.paletteIndex = m.clampedPaletteIndex(len(m.filteredPaletteActions()))
+		}
 	case tea.KeyCtrlC:
 		return m, tea.Quit
 	}
@@ -379,10 +435,10 @@ func (m Model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(current) > 0 {
 			m.form.Values[m.form.Index] = string(current[:len(current)-1])
 		}
-	case tea.KeyRunes:
-		m.form.Values[m.form.Index] += string(msg.Runes)
+	case tea.KeyRunes, tea.KeySpace:
+		m.form.Values[m.form.Index] += msg.String()
 	case tea.KeyEnter:
-		if strings.TrimSpace(m.form.Values[m.form.Index]) == "" {
+		if m.form.Fields[m.form.Index].Required && strings.TrimSpace(m.form.Values[m.form.Index]) == "" {
 			return m, nil
 		}
 		if m.form.Index < len(m.form.Fields)-1 {
@@ -498,6 +554,58 @@ func (m Model) confirmOrStartExecution(definition capability.Definition, input c
 		Input:      input,
 	}
 	return m, nil
+}
+
+func (m *Model) movePrimary(delta int) {
+	if len(m.primaryActions) == 0 {
+		m.primaryIndex = 0
+		return
+	}
+	m.primaryIndex += delta
+	if m.primaryIndex < 0 {
+		m.primaryIndex = 0
+	}
+	if m.primaryIndex >= len(m.primaryActions) {
+		m.primaryIndex = len(m.primaryActions) - 1
+	}
+}
+
+func (m Model) clampedPrimaryIndex() int {
+	if len(m.primaryActions) == 0 || m.primaryIndex < 0 {
+		return 0
+	}
+	if m.primaryIndex >= len(m.primaryActions) {
+		return len(m.primaryActions) - 1
+	}
+	return m.primaryIndex
+}
+
+func (m Model) selectPrimaryAction() (tea.Model, tea.Cmd) {
+	if len(m.primaryActions) == 0 {
+		return m, nil
+	}
+	selected := m.primaryActions[m.clampedPrimaryIndex()]
+	m.primaryIndex = m.clampedPrimaryIndex()
+	if fields := stringFields(selected); len(fields) > 0 {
+		m.form = newFormState(selected.ID, fields)
+		return m, nil
+	}
+	return m.confirmOrStartExecution(selected, capability.Input{})
+}
+
+func (m *Model) movePalette(delta int) {
+	length := len(m.filteredPaletteActions())
+	if length == 0 {
+		m.paletteIndex = 0
+		return
+	}
+	m.paletteIndex += delta
+	if m.paletteIndex < 0 {
+		m.paletteIndex = 0
+	}
+	if m.paletteIndex >= length {
+		m.paletteIndex = length - 1
+	}
 }
 
 func (m Model) startExecution(capabilityID string, input capability.Input, confirmed bool) (tea.Model, tea.Cmd) {
@@ -693,13 +801,13 @@ func (m Model) findDefinition(capabilityID string) (capability.Definition, bool)
 	return capability.Definition{}, false
 }
 
-func requiredStringFields(definition capability.Definition) []capability.InputField {
+func stringFields(definition capability.Definition) []capability.InputField {
 	if definition.InputSchema == nil {
 		return nil
 	}
 	fields := make([]capability.InputField, 0, len(definition.InputSchema.Fields))
 	for _, field := range definition.InputSchema.Fields {
-		if field.Required && field.Type == capability.InputTypeString {
+		if field.Type == capability.InputTypeString {
 			fields = append(fields, field)
 		}
 	}
@@ -718,7 +826,11 @@ func newFormState(capabilityID string, fields []capability.InputField) formState
 func (f formState) input() capability.Input {
 	input := make(capability.Input, len(f.Fields))
 	for index, field := range f.Fields {
-		input[field.Name] = f.Values[index]
+		value := strings.TrimSpace(f.Values[index])
+		if value == "" && !field.Required {
+			continue
+		}
+		input[field.Name] = value
 	}
 	return input
 }

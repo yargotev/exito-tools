@@ -22,9 +22,39 @@ The TUI Surface MUST start from the shared Application and render a task-first s
 - WHEN the initial TUI model is rendered
 - THEN that Capability is not shown as a primary Action
 
+
+### Requirement: Primary TUI Actions are keyboard navigable
+
+The TUI Surface MUST let users navigate primary Actions with arrow keys and Vim-style `j`/`k` keys, and MUST run the selected primary Action through the same input, confirmation, and Pipeline path used by Command Palette Actions.
+
+#### Scenario: Primary Action selection moves with keyboard
+
+- GIVEN multiple people-facing TUI-visible Capabilities are shown as primary Actions
+- WHEN the user presses `down` or `j`
+- THEN the selected primary Action moves to the next Action
+- WHEN the user presses `up` or `k`
+- THEN the selected primary Action moves to the previous Action
+
+#### Scenario: Selected primary Action runs through shared execution path
+
+- GIVEN a primary Action is selected
+- WHEN the user presses `enter`
+- THEN the TUI either collects that Action's string inputs or asks for required confirmation when applicable
+- AND the TUI executes the Action through the shared Capability execution Pipeline after required inputs and confirmation are satisfied
+
+### Requirement: TUI uses Catppuccin Mocha visual language
+
+The TUI Surface MUST render the shell with a Catppuccin Mocha-inspired visual theme while keeping user-facing labels and keyboard hints readable in plain terminal output.
+
+#### Scenario: Keyboard hints are visible
+
+- GIVEN the TUI shell is rendered
+- WHEN a user reads the initial view
+- THEN the view shows keyboard hints for arrows, Vim-style navigation, Command Palette, profile actions, cancellation, and quitting
+
 ### Requirement: Command Palette discovers people-facing Actions
 
-The TUI Surface MUST provide a Command Palette discovery mode that lists people-facing Actions across domains based on Capability metadata.
+The TUI Surface MUST provide a Command Palette discovery mode that lists people-facing Actions across domains based on Capability metadata, and MUST let users move the selected Palette Action with arrow keys and Vim-style `j`/`k` keys.
 
 #### Scenario: Palette includes command-palette-visible people Actions
 
@@ -37,6 +67,14 @@ The TUI Surface MUST provide a Command Palette discovery mode that lists people-
 - GIVEN the Command Palette is open with multiple discoverable Actions
 - WHEN a user types a query matching an Action title or Capability ID
 - THEN only matching Actions are shown
+
+#### Scenario: Palette selection moves with keyboard
+
+- GIVEN the Command Palette is open with multiple discoverable Actions
+- WHEN the user presses `down` or `j`
+- THEN the selected Palette Action moves to the next Action
+- WHEN the user presses `up` or `k`
+- THEN the selected Palette Action moves to the previous Action
 
 #### Scenario: Palette is distinct from primary navigation
 
@@ -73,11 +111,11 @@ The TUI Surface MUST execute selected Command Palette Actions through the shared
 
 ### Requirement: Command Palette Actions collect required string input
 
-The TUI Surface MUST collect required string inputs declared by a selected Action's Capability Input Schema before executing that Action.
+The TUI Surface MUST collect string inputs declared by a selected Action's Capability Input Schema before executing that Action, and MUST prevent submission only for required string fields left empty.
 
 #### Scenario: Selected Action opens an input form
 
-- GIVEN a people-facing command-palette-visible Capability declares required string input fields
+- GIVEN a people-facing command-palette-visible Capability declares string input fields
 - WHEN the user selects it from the Command Palette
 - THEN the TUI shows an input form for those fields instead of executing immediately
 

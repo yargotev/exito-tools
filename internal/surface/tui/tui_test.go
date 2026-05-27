@@ -582,7 +582,9 @@ func TestInputFormSubmissionExecutesWithCollectedInput(t *testing.T) {
 		t.Fatalf("form should advance to address field\n%s", view)
 	}
 
-	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("CL 57")})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("CL")})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("57")})
 	model, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd == nil {
 		t.Fatalf("final field submit command = nil, want execution command")
@@ -600,6 +602,63 @@ func TestInputFormSubmissionExecutesWithCollectedInput(t *testing.T) {
 	successView := model.(tui.Model).View()
 	if !strings.Contains(successView, "Success: geo.geocode-address") {
 		t.Fatalf("success view missing completed state\n%s", successView)
+	}
+}
+
+func TestInputFormAcceptsSpacesInAddressValues(t *testing.T) {
+	t.Parallel()
+
+	builder := registry.NewBuilder()
+	if err := builder.RegisterExecutable(capability.Executable{
+		Definition: capability.Definition{
+			ID:         "geo.geocode-address",
+			Domain:     "geo",
+			Title:      "Geocode address",
+			Audiences:  []capability.Audience{capability.AudiencePeople},
+			Visibility: []capability.Visibility{capability.VisibilityCommandPalette},
+			InputSchema: &capability.InputSchema{Fields: []capability.InputField{
+				{Name: "city", Type: capability.InputTypeString, Required: true},
+				{Name: "address", Type: capability.InputTypeString, Required: true},
+			}},
+		},
+		Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
+			if request.Input["city"] != "Envigado" {
+				t.Fatalf("city input = %#v, want Envigado", request.Input["city"])
+			}
+			if request.Input["address"] != "Carrera 3A # 10 A - 22" {
+				t.Fatalf("address input = %#v, want spaces preserved", request.Input["address"])
+			}
+			return capability.ExecutionResult{Data: map[string]any{"success": true}}, nil
+		},
+	}); err != nil {
+		t.Fatalf("RegisterExecutable() error = %v", err)
+	}
+
+	var model tea.Model = tui.NewModel(&app.Application{Registry: builder.Finalize()})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Envigado")})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	for _, chunk := range []string{"Carrera", "3A", "#", "10", "A", "-", "22"} {
+		model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(chunk)})
+		if chunk != "22" {
+			model, _ = model.Update(tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}})
+		}
+	}
+
+	view := model.(tui.Model).View()
+	if !strings.Contains(view, "> address: Carrera 3A # 10 A - 22") {
+		t.Fatalf("form view should preserve visible address spaces\n%s", view)
+	}
+
+	model, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatalf("address submit command = nil, want execution command")
+	}
+	model, _ = model.Update(cmd())
+	if !strings.Contains(model.(tui.Model).View(), "Success: geo.geocode-address") {
+		t.Fatalf("spaced address should execute successfully\n%s", model.(tui.Model).View())
 	}
 }
 
@@ -924,5 +983,170 @@ func TestLoadingTaskEscCancelsContextAndRendersCancelledState(t *testing.T) {
 	}
 	if strings.Contains(lateView, "Failure: orders.get") || strings.Contains(lateView, "Success: orders.get") {
 		t.Fatalf("late completion should not render success or failure\n%s", lateView)
+	}
+}
+
+func TestPrimaryNavigationSupportsArrowsVimKeysAndEnterExecution(t *testing.T) {
+	t.Parallel()
+
+	executed := ""
+	builder := registry.NewBuilder()
+	for _, definition := range []capability.Definition{
+		{
+			ID:         "orders.get",
+			Domain:     "orders",
+			Title:      "Get order",
+			Audiences:  []capability.Audience{capability.AudiencePeople},
+			Visibility: []capability.Visibility{capability.VisibilityTUI},
+		},
+		{
+			ID:         "geo.geocode-address",
+			Domain:     "geo",
+			Title:      "Geocode address",
+			Audiences:  []capability.Audience{capability.AudiencePeople},
+			Visibility: []capability.Visibility{capability.VisibilityTUI},
+		},
+	} {
+		def := definition
+		if err := builder.RegisterExecutable(capability.Executable{
+			Definition: def,
+			Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
+				executed = request.Context.CapabilityID
+				return capability.ExecutionResult{Data: map[string]any{"ok": true}}, nil
+			},
+		}); err != nil {
+			t.Fatalf("RegisterExecutable() error = %v", err)
+		}
+	}
+
+	var model tea.Model = tui.NewModel(&app.Application{Registry: builder.Finalize()})
+	initialView := model.(tui.Model).View()
+	if !strings.Contains(initialView, "Navigate with ↑/↓ or j/k") || !strings.Contains(initialView, "› Get order (orders.get)") {
+		t.Fatalf("initial view should expose navigable primary actions\n%s", initialView)
+	}
+
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	view := model.(tui.Model).View()
+	if !strings.Contains(view, "› Geocode address (geo.geocode-address)") {
+		t.Fatalf("j should move primary selection down\n%s", view)
+	}
+
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyUp})
+	view = model.(tui.Model).View()
+	if !strings.Contains(view, "› Get order (orders.get)") {
+		t.Fatalf("arrow up should move primary selection up\n%s", view)
+	}
+
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatalf("primary enter command = nil, want execution command")
+	}
+	model, _ = model.Update(cmd())
+	if executed != "geo.geocode-address" {
+		t.Fatalf("executed = %q, want geo.geocode-address", executed)
+	}
+	if !strings.Contains(model.(tui.Model).View(), "Success: geo.geocode-address") {
+		t.Fatalf("primary action should render success\n%s", model.(tui.Model).View())
+	}
+}
+
+func TestCommandPaletteVimNavigationMovesSelection(t *testing.T) {
+	t.Parallel()
+
+	builder := registry.NewBuilder()
+	for _, definition := range []capability.Definition{
+		{
+			ID:         "orders.get",
+			Domain:     "orders",
+			Title:      "Get order",
+			Audiences:  []capability.Audience{capability.AudiencePeople},
+			Visibility: []capability.Visibility{capability.VisibilityCommandPalette},
+		},
+		{
+			ID:         "geo.geocode-address",
+			Domain:     "geo",
+			Title:      "Geocode address",
+			Audiences:  []capability.Audience{capability.AudiencePeople},
+			Visibility: []capability.Visibility{capability.VisibilityCommandPalette},
+		},
+	} {
+		if err := builder.Register(definition); err != nil {
+			t.Fatalf("Register() error = %v", err)
+		}
+	}
+
+	var model tea.Model = tui.NewModel(&app.Application{Registry: builder.Finalize()})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	view := model.(tui.Model).View()
+	if !strings.Contains(view, "> Geocode address (geo.geocode-address)") {
+		t.Fatalf("palette j should move selection down\n%s", view)
+	}
+
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
+	view = model.(tui.Model).View()
+	if !strings.Contains(view, "> Get order (orders.get)") {
+		t.Fatalf("palette k should move selection up\n%s", view)
+	}
+}
+
+func TestTUIE2EPrimaryActionCollectsOptionalInputAndRunsPipeline(t *testing.T) {
+	t.Parallel()
+
+	builder := registry.NewBuilder()
+	if err := builder.RegisterExecutable(capability.Executable{
+		Definition: capability.Definition{
+			ID:         "orders.get",
+			Domain:     "orders",
+			Title:      "Get order",
+			Audiences:  []capability.Audience{capability.AudiencePeople},
+			Visibility: []capability.Visibility{capability.VisibilityTUI, capability.VisibilityCommandPalette},
+			InputSchema: &capability.InputSchema{Fields: []capability.InputField{
+				{Name: "id", Type: capability.InputTypeString, Required: true},
+				{Name: "orderType", Type: capability.InputTypeString, Required: false},
+			}},
+		},
+		Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
+			if request.Input["id"] != "1611511090420" {
+				t.Fatalf("id input = %#v, want 1611511090420", request.Input["id"])
+			}
+			if _, ok := request.Input["orderType"]; ok {
+				t.Fatalf("empty optional orderType should be omitted, input = %#v", request.Input)
+			}
+			return capability.ExecutionResult{Data: map[string]any{"order": request.Input["id"]}}, nil
+		},
+	}); err != nil {
+		t.Fatalf("RegisterExecutable() error = %v", err)
+	}
+
+	var model tea.Model = tui.NewModel(&app.Application{
+		Config:   config.Effective{Profile: "staging"},
+		Registry: builder.Finalize(),
+	})
+	model, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil {
+		t.Fatalf("opening primary form command = %#v, want nil", cmd)
+	}
+	if !strings.Contains(model.(tui.Model).View(), "Input Form") || !strings.Contains(model.(tui.Model).View(), "> id:") {
+		t.Fatalf("primary action should open input form\n%s", model.(tui.Model).View())
+	}
+
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1611511090420")})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if !strings.Contains(model.(tui.Model).View(), "> orderType:") {
+		t.Fatalf("form should advance to optional orderType field\n%s", model.(tui.Model).View())
+	}
+
+	model, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatalf("submitting optional field command = nil, want execution command")
+	}
+	model, _ = model.Update(cmd())
+	view := model.(tui.Model).View()
+	for _, fragment := range []string{"Success: orders.get", "- order: 1611511090420"} {
+		if !strings.Contains(view, fragment) {
+			t.Fatalf("e2e view missing %q\n%s", fragment, view)
+		}
 	}
 }
