@@ -27,6 +27,19 @@ const (
 	envOrdersTokenURL      = "EXITO_ORDERS_TOKEN_URL"
 	envGEOMSCredentialsQA  = "GEOMS_CREDENTIALS_QA"  // #nosec G101 -- environment variable name, not a credential value.
 	envGEOMSCredentialsPDN = "GEOMS_CREDENTIALS_PDN" // #nosec G101 -- environment variable name, not a credential value.
+
+	envExitoVTEXOMSBaseURLQA      = "EXITO_VTEX_OMS_BASE_URL_QA"
+	envExitoVTEXOMSBaseURLProd    = "EXITO_VTEX_OMS_BASE_URL_PROD"
+	envExitoVTEXOMSAppKeyQA       = "EXITO_APP_KEY_QA"     // #nosec G101 -- environment variable name, not a credential value.
+	envExitoVTEXOMSAppTokenQA     = "EXITO_APP_TOKEN_QA"   // #nosec G101 -- environment variable name, not a credential value.
+	envExitoVTEXOMSAppKeyProd     = "EXITO_APP_KEY_PROD"   // #nosec G101 -- environment variable name, not a credential value.
+	envExitoVTEXOMSAppTokenProd   = "EXITO_APP_TOKEN_PROD" // #nosec G101 -- environment variable name, not a credential value.
+	envCarullaVTEXOMSBaseURLQA    = "CARULLA_VTEX_OMS_BASE_URL_QA"
+	envCarullaVTEXOMSBaseURLProd  = "CARULLA_VTEX_OMS_BASE_URL_PROD"
+	envCarullaVTEXOMSAppKeyQA     = "CARULLA_APP_KEY_QA"   // #nosec G101 -- environment variable name, not a credential value.
+	envCarullaVTEXOMSAppTokenQA   = "CARULLA_APP_TOKEN_QA" // #nosec G101 -- environment variable name, not a credential value.
+	envCarullaVTEXOMSAppKeyProd   = "CARULLA_APP_KEY"      // #nosec G101 -- environment variable name, not a credential value.
+	envCarullaVTEXOMSAppTokenProd = "CARULLA_APP_TOKEN"    // #nosec G101 -- environment variable name, not a credential value.
 )
 
 // Source identifies where a resolved value came from.
@@ -72,6 +85,7 @@ type Effective struct {
 	CredentialLayers []CredentialLayer
 	GeoProvider      GeoProvider
 	OrdersProvider   OrdersProvider
+	VTEXOMSProvider  VTEXOMSProvider
 }
 
 // GeoProvider contains the resolved Geo provider configuration.
@@ -86,6 +100,28 @@ type GeoProvider struct {
 	TokenSet    bool   `json:"tokenSet"`
 
 	Configured bool `json:"configured"`
+}
+
+// VTEXOMSProvider contains the resolved VTEX OMS provider configuration.
+type VTEXOMSProvider struct {
+	Exito   VTEXOMSBrandProvider `json:"exito"`
+	Carulla VTEXOMSBrandProvider `json:"carulla"`
+}
+
+// VTEXOMSBrandProvider contains one brand's resolved VTEX OMS provider configuration.
+type VTEXOMSBrandProvider struct {
+	BaseURL       string `json:"baseUrl,omitempty"`
+	BaseURLSource Source `json:"baseUrlSource,omitempty"`
+
+	// AppKey and AppToken are intentionally omitted from JSON so VTEX server-side
+	// credentials cannot leak through effective configuration serialization.
+	AppKey         string `json:"-"`
+	AppKeySource   Source `json:"appKeySource,omitempty"`
+	AppKeySet      bool   `json:"appKeySet"`
+	AppToken       string `json:"-"`
+	AppTokenSource Source `json:"appTokenSource,omitempty"`
+	AppTokenSet    bool   `json:"appTokenSet"`
+	Configured     bool   `json:"configured"`
 }
 
 // OrdersProvider contains the resolved Orders provider configuration.
@@ -158,6 +194,10 @@ func Resolve(options Options) (Effective, error) {
 	if err != nil {
 		return Effective{}, err
 	}
+	vtexOMSProvider, err := resolveVTEXOMSProvider(resolvedOptions.Env, credentialLayers, yamlProviders.VTEXOMSBaseURLs, profile)
+	if err != nil {
+		return Effective{}, err
+	}
 
 	return Effective{
 		Profile:          profile,
@@ -168,6 +208,7 @@ func Resolve(options Options) (Effective, error) {
 		CredentialLayers: credentialLayers,
 		GeoProvider:      geoProvider,
 		OrdersProvider:   ordersProvider,
+		VTEXOMSProvider:  vtexOMSProvider,
 	}, nil
 }
 
@@ -305,6 +346,76 @@ func geomsCredentialsKey(profile string) string {
 	}
 }
 
+func resolveVTEXOMSProvider(env map[string]string, layers []CredentialLayer, yamlBaseURLs map[string]string, profile string) (VTEXOMSProvider, error) {
+	exito, err := resolveVTEXOMSBrandProvider(env, layers, yamlBaseURLs["exito"], profile, vtexOMSEnvKeys{
+		BaseURLQA: envExitoVTEXOMSBaseURLQA, BaseURLProd: envExitoVTEXOMSBaseURLProd,
+		AppKeyQA: envExitoVTEXOMSAppKeyQA, AppTokenQA: envExitoVTEXOMSAppTokenQA,
+		AppKeyProd: envExitoVTEXOMSAppKeyProd, AppTokenProd: envExitoVTEXOMSAppTokenProd,
+	})
+	if err != nil {
+		return VTEXOMSProvider{}, err
+	}
+	carulla, err := resolveVTEXOMSBrandProvider(env, layers, yamlBaseURLs["carulla"], profile, vtexOMSEnvKeys{
+		BaseURLQA: envCarullaVTEXOMSBaseURLQA, BaseURLProd: envCarullaVTEXOMSBaseURLProd,
+		AppKeyQA: envCarullaVTEXOMSAppKeyQA, AppTokenQA: envCarullaVTEXOMSAppTokenQA,
+		AppKeyProd: envCarullaVTEXOMSAppKeyProd, AppTokenProd: envCarullaVTEXOMSAppTokenProd,
+	})
+	if err != nil {
+		return VTEXOMSProvider{}, err
+	}
+	return VTEXOMSProvider{Exito: exito, Carulla: carulla}, nil
+}
+
+type vtexOMSEnvKeys struct {
+	BaseURLQA    string
+	BaseURLProd  string
+	AppKeyQA     string
+	AppTokenQA   string
+	AppKeyProd   string
+	AppTokenProd string
+}
+
+func resolveVTEXOMSBrandProvider(env map[string]string, layers []CredentialLayer, yamlBaseURL string, profile string, keys vtexOMSEnvKeys) (VTEXOMSBrandProvider, error) {
+	baseURLKey, appKeyKey, appTokenKey := keys.forProfile(profile)
+	values := map[string]resolvedValue{}
+	for _, layer := range layers {
+		switch layer.Source {
+		case SourceEnvironment:
+			setLayerValue(values, baseURLKey, env[baseURLKey], SourceEnvironment)
+			setLayerValue(values, appKeyKey, env[appKeyKey], SourceEnvironment)
+			setLayerValue(values, appTokenKey, env[appTokenKey], SourceEnvironment)
+		case SourceDotenv:
+			dotenv, err := readDotenvFile(layer.Path)
+			if err != nil {
+				return VTEXOMSBrandProvider{}, err
+			}
+			setLayerValue(values, baseURLKey, dotenv[baseURLKey], SourceDotenv)
+			setLayerValue(values, appKeyKey, dotenv[appKeyKey], SourceDotenv)
+			setLayerValue(values, appTokenKey, dotenv[appTokenKey], SourceDotenv)
+		}
+	}
+	setLayerValue(values, baseURLKey, yamlBaseURL, SourceConfigFile)
+
+	baseURL := values[baseURLKey]
+	appKey := values[appKeyKey]
+	appToken := values[appTokenKey]
+	return VTEXOMSBrandProvider{
+		BaseURL: baseURL.Value, BaseURLSource: sourceOrDefault(baseURL.Source),
+		AppKey: appKey.Value, AppKeySource: sourceOrDefault(appKey.Source), AppKeySet: appKey.Value != "",
+		AppToken: appToken.Value, AppTokenSource: sourceOrDefault(appToken.Source), AppTokenSet: appToken.Value != "",
+		Configured: baseURL.Value != "" && appKey.Value != "" && appToken.Value != "",
+	}, nil
+}
+
+func (k vtexOMSEnvKeys) forProfile(profile string) (baseURL string, appKey string, appToken string) {
+	switch strings.ToLower(strings.TrimSpace(profile)) {
+	case "prod", "production", "pdn":
+		return k.BaseURLProd, k.AppKeyProd, k.AppTokenProd
+	default:
+		return k.BaseURLQA, k.AppKeyQA, k.AppTokenQA
+	}
+}
+
 var credentialsPairPattern = regexp.MustCompile(`["']([^"']+)["']\s*:\s*["']([^"']*)["']`)
 
 func setOrdersCredentialsValue(values map[string]resolvedValue, raw string, source Source) {
@@ -366,8 +477,9 @@ func resolveProvider(env map[string]string, layers []CredentialLayer, baseURLKey
 }
 
 type yamlProfileProviders struct {
-	GeoBaseURL    string
-	OrdersBaseURL string
+	GeoBaseURL      string
+	OrdersBaseURL   string
+	VTEXOMSBaseURLs map[string]string
 }
 
 func readYAMLProfileProviders(path string, profile string) (yamlProfileProviders, error) {
@@ -382,9 +494,11 @@ func readYAMLProfileProviders(path string, profile string) (yamlProfileProviders
 	defer func() { _ = file.Close() }()
 
 	var providers yamlProfileProviders
+	providers.VTEXOMSBaseURLs = map[string]string{}
 	inProfiles := false
 	inSelectedProfile := false
 	currentProvider := ""
+	currentVTEXOMSBrand := ""
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -405,23 +519,32 @@ func readYAMLProfileProviders(path string, profile string) (yamlProfileProviders
 			inProfiles = key == "profiles" && value == ""
 			inSelectedProfile = false
 			currentProvider = ""
+			currentVTEXOMSBrand = ""
 		case 2:
 			if !inProfiles {
 				continue
 			}
 			inSelectedProfile = key == profile && value == ""
 			currentProvider = ""
+			currentVTEXOMSBrand = ""
 		case 4:
 			if !inProfiles || !inSelectedProfile {
 				continue
 			}
-			if (key == "geo" || key == "orders") && value == "" {
+			currentVTEXOMSBrand = ""
+			if (key == "geo" || key == "orders" || key == "vtexOms") && value == "" {
 				currentProvider = key
 			} else {
 				currentProvider = ""
 			}
 		case 6:
 			if !inProfiles || !inSelectedProfile || currentProvider == "" {
+				continue
+			}
+			if currentProvider == "vtexOms" {
+				if (key == "exito" || key == "carulla") && value == "" {
+					currentVTEXOMSBrand = key
+				}
 				continue
 			}
 			if key != "baseUrl" && key != "baseURL" {
@@ -432,6 +555,13 @@ func readYAMLProfileProviders(path string, profile string) (yamlProfileProviders
 				providers.GeoBaseURL = value
 			case "orders":
 				providers.OrdersBaseURL = value
+			}
+		case 8:
+			if !inProfiles || !inSelectedProfile || currentProvider != "vtexOms" || currentVTEXOMSBrand == "" {
+				continue
+			}
+			if key == "baseUrl" || key == "baseURL" {
+				providers.VTEXOMSBaseURLs[currentVTEXOMSBrand] = value
 			}
 		}
 	}

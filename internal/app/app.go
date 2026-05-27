@@ -30,6 +30,9 @@ func New(options Options) (*Application, error) {
 	if err := builder.RegisterExecutable(orders.NewGetCapability(ordersGetter(effectiveConfig))); err != nil {
 		return nil, err
 	}
+	if err := builder.RegisterExecutable(orders.NewGetVTEXOMSCapability(vtexOMSGetter(effectiveConfig))); err != nil {
+		return nil, err
+	}
 	if err := builder.RegisterExecutable(geo.NewGeocodeAddressCapability(geoGeocoder(effectiveConfig))); err != nil {
 		return nil, err
 	}
@@ -53,6 +56,24 @@ func ordersGetter(effectiveConfig config.Effective) orders.Getter {
 		ClientID:     effectiveConfig.OrdersProvider.ClientID,
 		ClientSecret: effectiveConfig.OrdersProvider.ClientSecret,
 		Scope:        effectiveConfig.OrdersProvider.Scope,
+	}, nil)
+}
+
+func vtexOMSGetter(effectiveConfig config.Effective) orders.VTEXOMSGetterPort {
+	return orders.NewVTEXOMSBrandGetter(
+		vtexOMSBrandGetter(effectiveConfig.VTEXOMSProvider.Exito),
+		vtexOMSBrandGetter(effectiveConfig.VTEXOMSProvider.Carulla),
+	)
+}
+
+func vtexOMSBrandGetter(provider config.VTEXOMSBrandProvider) orders.VTEXOMSGetterPort {
+	if !provider.Configured {
+		return orders.UnavailableVTEXOMSGetter{}
+	}
+	return orders.NewVTEXOMSGetter(orders.VTEXOMSGetterConfig{
+		BaseURL:  provider.BaseURL,
+		AppKey:   provider.AppKey,
+		AppToken: provider.AppToken,
 	}, nil)
 }
 

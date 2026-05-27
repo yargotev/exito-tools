@@ -871,3 +871,94 @@ func readTextFile(t *testing.T, path string) string {
 	}
 	return string(content)
 }
+
+func TestResolveVTEXOMSProviderConfiguration(t *testing.T) {
+	t.Parallel()
+
+	t.Run("staging resolves Exito QA credentials and YAML base URL", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		writeTextFile(t, filepath.Join(workDir, "exito.yaml"), `defaultProfile: staging
+profiles:
+  staging:
+    vtexOms:
+      exito:
+        baseUrl: https://master--exito.myvtex.com
+`)
+
+		resolved, err := config.Resolve(config.Options{
+			WorkDir: workDir,
+			HomeDir: t.TempDir(),
+			Env: map[string]string{ // #nosec G101 -- test-only fake VTEX credentials.
+				"EXITO_APP_KEY_QA":   "qa-key",
+				"EXITO_APP_TOKEN_QA": "qa-token",
+			},
+		})
+		if err != nil {
+			t.Fatalf("Resolve() error = %v", err)
+		}
+
+		provider := resolved.VTEXOMSProvider.Exito
+		if !provider.Configured {
+			t.Fatalf("Exito VTEX OMS provider should be configured: %#v", provider)
+		}
+		if provider.BaseURL != "https://master--exito.myvtex.com" || provider.BaseURLSource != config.SourceConfigFile {
+			t.Fatalf("base URL = (%q,%q), want YAML config-file", provider.BaseURL, provider.BaseURLSource)
+		}
+		if provider.AppKey != "qa-key" || provider.AppToken != "qa-token" {
+			t.Fatalf("credentials = (%q,%q), want env values", provider.AppKey, provider.AppToken)
+		}
+	})
+
+	t.Run("prod resolves Carulla production credential names", func(t *testing.T) {
+		t.Parallel()
+
+		resolved, err := config.Resolve(config.Options{
+			Profile: "prod",
+			WorkDir: t.TempDir(),
+			HomeDir: t.TempDir(),
+			Env: map[string]string{ // #nosec G101 -- test-only fake VTEX credentials.
+				"CARULLA_VTEX_OMS_BASE_URL_PROD": "https://carulla.myvtex.com",
+				"CARULLA_APP_KEY":                "prod-key",
+				"CARULLA_APP_TOKEN":              "prod-token",
+			},
+		})
+		if err != nil {
+			t.Fatalf("Resolve() error = %v", err)
+		}
+
+		provider := resolved.VTEXOMSProvider.Carulla
+		if !provider.Configured || provider.BaseURL != "https://carulla.myvtex.com" || provider.AppKey != "prod-key" || provider.AppToken != "prod-token" {
+			t.Fatalf("Carulla VTEX OMS provider = %#v, want configured prod values", provider)
+		}
+	})
+}
+
+func TestVTEXOMSCredentialsAreOmittedFromEffectiveJSON(t *testing.T) {
+	t.Parallel()
+
+	resolved, err := config.Resolve(config.Options{
+		WorkDir: t.TempDir(),
+		HomeDir: t.TempDir(),
+		Env: map[string]string{ // #nosec G101 -- test-only fake VTEX credentials.
+			"EXITO_VTEX_OMS_BASE_URL_QA": "https://master--exito.myvtex.com",
+			"EXITO_APP_KEY_QA":           "secret-key",
+			"EXITO_APP_TOKEN_QA":         "secret-token",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+
+	encoded, err := json.Marshal(resolved)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	if strings.Contains(string(encoded), "secret-key") || strings.Contains(string(encoded), "secret-token") {
+		t.Fatalf("effective config JSON leaked VTEX credentials: %s", string(encoded))
+	}
+	if !strings.Contains(string(encoded), `"appKeySet":true`) || !strings.Contains(string(encoded), `"appTokenSet":true`) {
+		t.Fatalf("effective config should expose only VTEX credential presence metadata: %s", string(encoded))
+	}
+}

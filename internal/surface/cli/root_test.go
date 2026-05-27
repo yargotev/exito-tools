@@ -897,3 +897,56 @@ func TestConfigSetDefaultProfileCommandRejectsBlankProfile(t *testing.T) {
 		t.Fatalf("blank profile should not create config file, stat error = %v", err)
 	}
 }
+
+func TestOrdersGetVTEXCommandRunsOrdersGetVTEXCapability(t *testing.T) {
+	t.Parallel()
+
+	root := clisurface.NewRoot(app.New)
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stdout)
+	root.SetArgs([]string{"--profile", "prod", "--correlation-id", "corr-vtex", "orders", "get-vtex", "--id", "1611511090420-01", "--brand", "carulla"})
+
+	assertFailureExitCode(t, root.Execute())
+
+	var got struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+		Meta struct {
+			CorrelationID string `json:"correlationId"`
+			Profile       string `json:"profile"`
+			CapabilityID  string `json:"capabilityId"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("orders get-vtex output is not JSON: %v\n%s", err, stdout.String())
+	}
+	if got.OK {
+		t.Fatalf("ok = true, want false until VTEX OMS client is configured")
+	}
+	if got.Error.Code != orders.ErrorOrdersNotConfigured {
+		t.Fatalf("error.code = %q, want %s", got.Error.Code, orders.ErrorOrdersNotConfigured)
+	}
+	if got.Meta.CorrelationID != "corr-vtex" || got.Meta.Profile != "prod" || got.Meta.CapabilityID != orders.CapabilityGetVTEXID {
+		t.Fatalf("unexpected metadata: %#v", got.Meta)
+	}
+}
+
+func TestOrdersGetVTEXCommandRequiresID(t *testing.T) {
+	t.Parallel()
+
+	root := clisurface.NewRoot(app.New)
+	var output bytes.Buffer
+	root.SetOut(&output)
+	root.SetErr(&output)
+	root.SetArgs([]string{"orders", "get-vtex"})
+
+	if err := root.Execute(); err == nil {
+		t.Fatalf("Execute() error = nil, want missing required flag error")
+	}
+	if strings.Contains(output.String(), "{\"ok\"") {
+		t.Fatalf("missing flag error should not emit JSON envelope\n%s", output.String())
+	}
+}

@@ -12,6 +12,11 @@ profiles:
       baseUrl: https://sitidataws.sitimapa.co
     orders:
       baseUrl: https://orders.example.test
+    vtexOms:
+      exito:
+        baseUrl: https://master--exito.myvtex.com
+      carulla:
+        baseUrl: https://master--carullaqa.myvtex.com
 ```
 
 `defaultProfile` stores the saved Default Profile used when neither `--profile` nor `EXITO_PROFILE` is set. Secrets and provider tokens must stay in environment variables or non-committed dotenv files, not YAML.
@@ -65,3 +70,26 @@ Orders provider values are resolved in this order:
 4. Selected YAML `profiles.<profile>.orders.baseUrl` for non-sensitive base URL only.
 
 The resolver marks Orders as configured when an Orders base URL is present and either a pre-fetched `EXITO_ORDERS_TOKEN` or complete GEOMS client credentials are present. Secret values are kept out of JSON serialization; only presence/source metadata may be exposed.
+
+
+### VTEX OMS
+
+```env
+# Non-sensitive endpoints can also live in YAML profiles.<profile>.vtexOms.<brand>.baseUrl.
+EXITO_VTEX_OMS_BASE_URL_QA=https://master--exito.myvtex.com
+EXITO_VTEX_OMS_BASE_URL_PROD=https://master--exitocol.myvtex.com
+CARULLA_VTEX_OMS_BASE_URL_QA=https://master--carullaqa.myvtex.com
+CARULLA_VTEX_OMS_BASE_URL_PROD=https://master--carulla.myvtex.com
+
+# Server-side VTEX OMS credentials; never expose to browser/client surfaces.
+EXITO_APP_KEY_QA=...
+EXITO_APP_TOKEN_QA=...
+EXITO_APP_KEY_PROD=...
+EXITO_APP_TOKEN_PROD=...
+CARULLA_APP_KEY_QA=...
+CARULLA_APP_TOKEN_QA=...
+CARULLA_APP_KEY=...
+CARULLA_APP_TOKEN=...
+```
+
+VTEX OMS credentials are sensitive and must only live in the real process environment or non-committed dotenv files. The resolver chooses QA variables for non-production profiles and production variables for `prod`/`production`/`pdn` profiles. Secret values are kept out of JSON serialization; only presence/source metadata may be exposed.

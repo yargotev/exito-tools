@@ -221,6 +221,7 @@ func newOrdersCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Comma
 		Short: "Run Orders Domain commands",
 	}
 	command.AddCommand(newOrdersGetCommand(bootstrap, options))
+	command.AddCommand(newOrdersGetVTEXCommand(bootstrap, options))
 	return command
 }
 
@@ -258,6 +259,44 @@ func newOrdersGetCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Co
 
 	command.Flags().StringVar(&orderID, "id", "", "Order identifier")
 	command.Flags().StringVar(&orderType, "order-type", "ExitoEcomm", "GEOMS order type filter, such as ExitoEcomm or CarullaEcomm")
+	_ = command.MarkFlagRequired("id")
+	return command
+}
+
+func newOrdersGetVTEXCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Command {
+	var orderID string
+	var brand string
+
+	command := &cobra.Command{
+		Use:   "get-vtex",
+		Short: "Get an order by ID from VTEX OMS",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			application, err := bootstrap(appOptions(*options))
+			if err != nil {
+				return err
+			}
+
+			pipeline := execution.NewPipeline(application.Registry)
+			envelope, err := pipeline.Execute(cmd.Context(), execution.ExecuteRequest{
+				CapabilityID: orders.CapabilityGetVTEXID,
+				Input: capability.Input{
+					"id":    orderID,
+					"brand": brand,
+				},
+				Profile:       application.Config.Profile,
+				CorrelationID: options.correlationID,
+			})
+			if err != nil {
+				return err
+			}
+
+			return writeExecutionEnvelope(cmd.OutOrStdout(), envelope)
+		},
+	}
+
+	command.Flags().StringVar(&orderID, "id", "", "VTEX OMS order identifier")
+	command.Flags().StringVar(&brand, "brand", "exito", "VTEX brand account to query: exito or carulla")
 	_ = command.MarkFlagRequired("id")
 	return command
 }

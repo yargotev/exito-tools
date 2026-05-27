@@ -193,3 +193,30 @@ The Configuration Resolver MUST load non-sensitive provider base URLs from the s
 - THEN the providers are not configured
 - AND token values are not read from YAML
 
+
+### Requirement: VTEX OMS provider configuration resolves by profile and brand
+
+The Configuration Resolver MUST resolve non-sensitive VTEX OMS base URLs by Effective Profile and brand, while resolving VTEX OMS app key/token credentials only from process environment or non-committed dotenv files.
+
+#### Scenario: Non-production Exito VTEX OMS uses QA credentials
+
+- **Given** the Effective Profile is `staging`
+- **And** Exito VTEX OMS base URL and QA app key/token values are available
+- **When** configuration is resolved
+- **Then** the Exito VTEX OMS provider is configured
+- **And** it uses the QA credential variable names
+
+#### Scenario: Production Carulla VTEX OMS uses production credentials
+
+- **Given** the Effective Profile is `prod`
+- **And** Carulla VTEX OMS base URL and production app key/token values are available
+- **When** configuration is resolved
+- **Then** the Carulla VTEX OMS provider is configured
+- **And** it uses `CARULLA_APP_KEY` and `CARULLA_APP_TOKEN`
+
+#### Scenario: VTEX OMS credentials are not serialized
+
+- **Given** VTEX OMS app key and app token are configured
+- **When** effective configuration is marshaled to JSON
+- **Then** the JSON output does not contain the VTEX OMS app key or app token
+- **And** the JSON output still includes credential presence/source metadata

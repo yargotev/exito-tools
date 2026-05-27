@@ -5,6 +5,16 @@ profiles:
       baseUrl: https://sitidataws.sitimapa.co
     orders:
       baseUrl: https://bromoqa.grupo-exito.com/apioms/api/v1/TSYHCSNIDTKZJWM/geoms
+    vtexOms:
+      exito:
+        baseUrl: https://master--exito.myvtex.com
+      carulla:
+        baseUrl: https://master--carullaqa.myvtex.com
   prod:
     orders:
       baseUrl: https://bromo.grupo-exito.com/apioms/api/v1/IUYASVSFSBCJS/geoms
+    vtexOms:
+      exito:
+        baseUrl: https://master--exitocol.myvtex.com
+      carulla:
+        baseUrl: https://master--carulla.myvtex.com
