@@ -40,6 +40,11 @@ const (
 	envCarullaVTEXOMSAppTokenQA   = "CARULLA_APP_TOKEN_QA" // #nosec G101 -- environment variable name, not a credential value.
 	envCarullaVTEXOMSAppKeyProd   = "CARULLA_APP_KEY"      // #nosec G101 -- environment variable name, not a credential value.
 	envCarullaVTEXOMSAppTokenProd = "CARULLA_APP_TOKEN"    // #nosec G101 -- environment variable name, not a credential value.
+
+	envExitoVTEXCatalogBaseURLQA     = "EXITO_VTEX_CATALOG_BASE_URL_QA"
+	envExitoVTEXCatalogBaseURLProd   = "EXITO_VTEX_CATALOG_BASE_URL_PROD"
+	envCarullaVTEXCatalogBaseURLQA   = "CARULLA_VTEX_CATALOG_BASE_URL_QA"
+	envCarullaVTEXCatalogBaseURLProd = "CARULLA_VTEX_CATALOG_BASE_URL_PROD"
 )
 
 // Source identifies where a resolved value came from.
@@ -82,10 +87,11 @@ type Effective struct {
 	ConfigSource     Source
 	ConfigCandidates []ConfigCandidate
 
-	CredentialLayers []CredentialLayer
-	GeoProvider      GeoProvider
-	OrdersProvider   OrdersProvider
-	VTEXOMSProvider  VTEXOMSProvider
+	CredentialLayers    []CredentialLayer
+	GeoProvider         GeoProvider
+	OrdersProvider      OrdersProvider
+	VTEXOMSProvider     VTEXOMSProvider
+	VTEXCatalogProvider VTEXCatalogProvider
 }
 
 // GeoProvider contains the resolved Geo provider configuration.
@@ -106,6 +112,19 @@ type GeoProvider struct {
 type VTEXOMSProvider struct {
 	Exito   VTEXOMSBrandProvider `json:"exito"`
 	Carulla VTEXOMSBrandProvider `json:"carulla"`
+}
+
+// VTEXCatalogProvider contains the resolved VTEX Catalog provider configuration.
+type VTEXCatalogProvider struct {
+	Exito   VTEXCatalogBrandProvider `json:"exito"`
+	Carulla VTEXCatalogBrandProvider `json:"carulla"`
+}
+
+// VTEXCatalogBrandProvider contains one brand's resolved public VTEX Catalog provider configuration.
+type VTEXCatalogBrandProvider struct {
+	BaseURL       string `json:"baseUrl,omitempty"`
+	BaseURLSource Source `json:"baseUrlSource,omitempty"`
+	Configured    bool   `json:"configured"`
 }
 
 // VTEXOMSBrandProvider contains one brand's resolved VTEX OMS provider configuration.
@@ -198,17 +217,22 @@ func Resolve(options Options) (Effective, error) {
 	if err != nil {
 		return Effective{}, err
 	}
+	vtexCatalogProvider, err := resolveVTEXCatalogProvider(resolvedOptions.Env, credentialLayers, yamlProviders.VTEXCatalogBaseURLs, profile)
+	if err != nil {
+		return Effective{}, err
+	}
 
 	return Effective{
-		Profile:          profile,
-		ProfileSource:    profileSource,
-		ConfigPath:       configPath,
-		ConfigSource:     configSource,
-		ConfigCandidates: candidates,
-		CredentialLayers: credentialLayers,
-		GeoProvider:      geoProvider,
-		OrdersProvider:   ordersProvider,
-		VTEXOMSProvider:  vtexOMSProvider,
+		Profile:             profile,
+		ProfileSource:       profileSource,
+		ConfigPath:          configPath,
+		ConfigSource:        configSource,
+		ConfigCandidates:    candidates,
+		CredentialLayers:    credentialLayers,
+		GeoProvider:         geoProvider,
+		OrdersProvider:      ordersProvider,
+		VTEXOMSProvider:     vtexOMSProvider,
+		VTEXCatalogProvider: vtexCatalogProvider,
 	}, nil
 }
 
@@ -335,6 +359,47 @@ func resolveOrdersProvider(env map[string]string, layers []CredentialLayer, yaml
 		ScopeSet:       scope.Value != "",
 		Configured:     provider.BaseURL != "" && (provider.TokenSet || credentialsConfigured),
 	}, nil
+}
+
+func resolveVTEXCatalogProvider(env map[string]string, layers []CredentialLayer, yamlBaseURLs map[string]string, profile string) (VTEXCatalogProvider, error) {
+	exito, err := resolveVTEXCatalogBrandProvider(env, layers, yamlBaseURLs["exito"], profile, envExitoVTEXCatalogBaseURLQA, envExitoVTEXCatalogBaseURLProd)
+	if err != nil {
+		return VTEXCatalogProvider{}, err
+	}
+	carulla, err := resolveVTEXCatalogBrandProvider(env, layers, yamlBaseURLs["carulla"], profile, envCarullaVTEXCatalogBaseURLQA, envCarullaVTEXCatalogBaseURLProd)
+	if err != nil {
+		return VTEXCatalogProvider{}, err
+	}
+	return VTEXCatalogProvider{Exito: exito, Carulla: carulla}, nil
+}
+
+func resolveVTEXCatalogBrandProvider(env map[string]string, layers []CredentialLayer, yamlBaseURL string, profile string, qaKey string, prodKey string) (VTEXCatalogBrandProvider, error) {
+	baseURLKey := profileKey(profile, qaKey, prodKey)
+	values := map[string]resolvedValue{}
+	for _, layer := range layers {
+		switch layer.Source {
+		case SourceEnvironment:
+			setLayerValue(values, baseURLKey, env[baseURLKey], SourceEnvironment)
+		case SourceDotenv:
+			dotenv, err := readDotenvFile(layer.Path)
+			if err != nil {
+				return VTEXCatalogBrandProvider{}, err
+			}
+			setLayerValue(values, baseURLKey, dotenv[baseURLKey], SourceDotenv)
+		}
+	}
+	setLayerValue(values, baseURLKey, yamlBaseURL, SourceConfigFile)
+	baseURL := values[baseURLKey]
+	return VTEXCatalogBrandProvider{BaseURL: baseURL.Value, BaseURLSource: sourceOrDefault(baseURL.Source), Configured: baseURL.Value != ""}, nil
+}
+
+func profileKey(profile string, qaKey string, prodKey string) string {
+	switch strings.ToLower(strings.TrimSpace(profile)) {
+	case "prod", "production", "pdn":
+		return prodKey
+	default:
+		return qaKey
+	}
 }
 
 func geomsCredentialsKey(profile string) string {
@@ -477,9 +542,10 @@ func resolveProvider(env map[string]string, layers []CredentialLayer, baseURLKey
 }
 
 type yamlProfileProviders struct {
-	GeoBaseURL      string
-	OrdersBaseURL   string
-	VTEXOMSBaseURLs map[string]string
+	GeoBaseURL          string
+	OrdersBaseURL       string
+	VTEXOMSBaseURLs     map[string]string
+	VTEXCatalogBaseURLs map[string]string
 }
 
 func readYAMLProfileProviders(path string, profile string) (yamlProfileProviders, error) {
@@ -495,10 +561,12 @@ func readYAMLProfileProviders(path string, profile string) (yamlProfileProviders
 
 	var providers yamlProfileProviders
 	providers.VTEXOMSBaseURLs = map[string]string{}
+	providers.VTEXCatalogBaseURLs = map[string]string{}
 	inProfiles := false
 	inSelectedProfile := false
 	currentProvider := ""
 	currentVTEXOMSBrand := ""
+	currentVTEXCatalogBrand := ""
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -520,6 +588,7 @@ func readYAMLProfileProviders(path string, profile string) (yamlProfileProviders
 			inSelectedProfile = false
 			currentProvider = ""
 			currentVTEXOMSBrand = ""
+			currentVTEXCatalogBrand = ""
 		case 2:
 			if !inProfiles {
 				continue
@@ -527,12 +596,14 @@ func readYAMLProfileProviders(path string, profile string) (yamlProfileProviders
 			inSelectedProfile = key == profile && value == ""
 			currentProvider = ""
 			currentVTEXOMSBrand = ""
+			currentVTEXCatalogBrand = ""
 		case 4:
 			if !inProfiles || !inSelectedProfile {
 				continue
 			}
 			currentVTEXOMSBrand = ""
-			if (key == "geo" || key == "orders" || key == "vtexOms") && value == "" {
+			currentVTEXCatalogBrand = ""
+			if (key == "geo" || key == "orders" || key == "vtexOms" || key == "vtexCatalog") && value == "" {
 				currentProvider = key
 			} else {
 				currentProvider = ""
@@ -547,6 +618,12 @@ func readYAMLProfileProviders(path string, profile string) (yamlProfileProviders
 				}
 				continue
 			}
+			if currentProvider == "vtexCatalog" {
+				if (key == "exito" || key == "carulla") && value == "" {
+					currentVTEXCatalogBrand = key
+				}
+				continue
+			}
 			if key != "baseUrl" && key != "baseURL" {
 				continue
 			}
@@ -557,11 +634,14 @@ func readYAMLProfileProviders(path string, profile string) (yamlProfileProviders
 				providers.OrdersBaseURL = value
 			}
 		case 8:
-			if !inProfiles || !inSelectedProfile || currentProvider != "vtexOms" || currentVTEXOMSBrand == "" {
+			if !inProfiles || !inSelectedProfile {
 				continue
 			}
-			if key == "baseUrl" || key == "baseURL" {
+			if currentProvider == "vtexOms" && currentVTEXOMSBrand != "" && (key == "baseUrl" || key == "baseURL") {
 				providers.VTEXOMSBaseURLs[currentVTEXOMSBrand] = value
+			}
+			if currentProvider == "vtexCatalog" && currentVTEXCatalogBrand != "" && (key == "baseUrl" || key == "baseURL") {
+				providers.VTEXCatalogBaseURLs[currentVTEXCatalogBrand] = value
 			}
 		}
 	}

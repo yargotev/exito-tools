@@ -12,6 +12,7 @@ import (
 	"github.com/yargotev/exito-tools/internal/app"
 	"github.com/yargotev/exito-tools/internal/capability"
 	"github.com/yargotev/exito-tools/internal/config"
+	"github.com/yargotev/exito-tools/internal/domain/catalog"
 	"github.com/yargotev/exito-tools/internal/domain/geo"
 	"github.com/yargotev/exito-tools/internal/domain/orders"
 	"github.com/yargotev/exito-tools/internal/registry"
@@ -53,6 +54,7 @@ func TestRootHelpPaths(t *testing.T) {
 				"config",
 				"orders",
 				"geo",
+				"catalog",
 				"tui",
 			} {
 				if !strings.Contains(rendered, fragment) {
@@ -986,5 +988,85 @@ func TestOrdersGetVTEXCommandRequiresID(t *testing.T) {
 	}
 	if strings.Contains(output.String(), "{\"ok\"") {
 		t.Fatalf("missing flag error should not emit JSON envelope\n%s", output.String())
+	}
+}
+
+func TestCatalogSearchProductsCommandRunsCapability(t *testing.T) {
+	root := clisurface.NewRoot(func(options app.Options) (*app.Application, error) {
+		builder := registry.NewBuilder()
+		if err := builder.RegisterExecutable(capability.Executable{
+			Definition: catalog.Definition(),
+			Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
+				if request.Input["brand"] != "carulla" || request.Input["by"] != "sku-id" || request.Input["value"] != "912350" {
+					t.Fatalf("input = %#v, want catalog search flags", request.Input)
+				}
+				if request.Input["from"] != 0 || request.Input["to"] != 0 {
+					t.Fatalf("pagination input = %#v", request.Input)
+				}
+				return capability.ExecutionResult{Data: catalog.SearchProductsResult{Brand: "carulla", Count: 1, Products: []catalog.Product{{ProductID: "534690"}}}}, nil
+			},
+		}); err != nil {
+			t.Fatalf("RegisterExecutable() error = %v", err)
+		}
+		return &app.Application{Config: config.Effective{Profile: "staging"}, ConfigOptions: options.Config, Registry: builder.Finalize()}, nil
+	})
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stdout)
+	root.SetArgs([]string{"--correlation-id", "corr-catalog", "catalog", "search-products", "--brand", "carulla", "--by", "sku-id", "--value", "912350", "--from", "0", "--to", "0"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	var got struct {
+		OK   bool `json:"ok"`
+		Data struct {
+			Brand string `json:"brand"`
+			Count int    `json:"count"`
+		} `json:"data"`
+		Meta struct {
+			CorrelationID string `json:"correlationId"`
+			CapabilityID  string `json:"capabilityId"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("catalog search output is not JSON: %v\n%s", err, stdout.String())
+	}
+	if !got.OK || got.Data.Brand != "carulla" || got.Data.Count != 1 {
+		t.Fatalf("output = %#v, want successful catalog result", got)
+	}
+	if got.Meta.CorrelationID != "corr-catalog" || got.Meta.CapabilityID != catalog.CapabilitySearchProductsID {
+		t.Fatalf("metadata = %#v, want catalog capability", got.Meta)
+	}
+}
+
+func TestCatalogSearchProductsCommandPassesAdvancedFilters(t *testing.T) {
+	root := clisurface.NewRoot(func(options app.Options) (*app.Application, error) {
+		builder := registry.NewBuilder()
+		if err := builder.RegisterExecutable(capability.Executable{
+			Definition: catalog.Definition(),
+			Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
+				filters, ok := request.Input["fq"].([]string)
+				if !ok || len(filters) != 2 || filters[0] != "sellerId:VMIABBA" || filters[1] != "skuId:912350" {
+					t.Fatalf("fq = %#v, want repeated filters", request.Input["fq"])
+				}
+				if request.Input["ft"] != "minibar" || request.Input["order"] != "OrderByPriceASC" {
+					t.Fatalf("advanced input = %#v", request.Input)
+				}
+				return capability.ExecutionResult{Data: catalog.SearchProductsResult{Brand: "exito", Products: []catalog.Product{}}}, nil
+			},
+		}); err != nil {
+			t.Fatalf("RegisterExecutable() error = %v", err)
+		}
+		return &app.Application{Config: config.Effective{Profile: "staging"}, ConfigOptions: options.Config, Registry: builder.Finalize()}, nil
+	})
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stdout)
+	root.SetArgs([]string{"catalog", "search-products", "--fq", "sellerId:VMIABBA", "--fq", "skuId:912350", "--ft", "minibar", "--order", "OrderByPriceASC"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v\nstdout: %s", err, stdout.String())
 	}
 }

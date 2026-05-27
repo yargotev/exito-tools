@@ -11,6 +11,7 @@ import (
 	"github.com/yargotev/exito-tools/internal/app"
 	"github.com/yargotev/exito-tools/internal/capability"
 	"github.com/yargotev/exito-tools/internal/config"
+	"github.com/yargotev/exito-tools/internal/domain/catalog"
 	"github.com/yargotev/exito-tools/internal/domain/geo"
 	"github.com/yargotev/exito-tools/internal/domain/orders"
 	"github.com/yargotev/exito-tools/internal/execution"
@@ -71,6 +72,7 @@ func NewRoot(bootstrap Bootstrapper) *cobra.Command {
 	command.AddCommand(newRunCommand(bootstrap, &options))
 	command.AddCommand(newOrdersCommand(bootstrap, &options))
 	command.AddCommand(newGeoCommand(bootstrap, &options))
+	command.AddCommand(newCatalogCommand(bootstrap, &options))
 	command.AddCommand(newTUICommand(bootstrap, &options))
 	return command
 }
@@ -165,6 +167,82 @@ func newCapabilitiesCommand(bootstrap Bootstrapper, options *rootOptions) *cobra
 			return presenter.WriteJSON(cmd.OutOrStdout(), envelope)
 		},
 	}
+}
+
+func newCatalogCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Command {
+	command := &cobra.Command{
+		Use:   "catalog",
+		Short: "Run Catalog Domain commands",
+	}
+	command.AddCommand(newCatalogSearchProductsCommand(bootstrap, options))
+	return command
+}
+
+func newCatalogSearchProductsCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Command {
+	var brand string
+	var by string
+	var value string
+	var filters []string
+	var fullText string
+	var order string
+	var from int
+	var to int
+
+	command := &cobra.Command{
+		Use:   "search-products",
+		Short: "Search VTEX catalog products",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			application, err := bootstrap(appOptions(*options))
+			if err != nil {
+				return err
+			}
+
+			input := capability.Input{
+				"brand": brand,
+				"from":  from,
+				"to":    to,
+			}
+			if by != "" {
+				input["by"] = by
+			}
+			if value != "" {
+				input["value"] = value
+			}
+			if len(filters) > 0 {
+				input["fq"] = filters
+			}
+			if fullText != "" {
+				input["ft"] = fullText
+			}
+			if order != "" {
+				input["order"] = order
+			}
+
+			pipeline := execution.NewPipeline(application.Registry)
+			envelope, err := pipeline.Execute(cmd.Context(), execution.ExecuteRequest{
+				CapabilityID:  catalog.CapabilitySearchProductsID,
+				Input:         input,
+				Profile:       application.Config.Profile,
+				CorrelationID: options.correlationID,
+			})
+			if err != nil {
+				return err
+			}
+
+			return writeExecutionEnvelope(cmd.OutOrStdout(), envelope)
+		},
+	}
+
+	command.Flags().StringVar(&brand, "brand", "exito", "VTEX brand account to query: exito or carulla")
+	command.Flags().StringVar(&by, "by", "", "Friendly lookup mode: sku-id, product-id, ref-id, ean, seller-id, category, brand-id, collection-id, text, or slug")
+	command.Flags().StringVar(&value, "value", "", "Lookup value used with --by")
+	command.Flags().StringArrayVar(&filters, "fq", nil, "Raw VTEX fq filter; repeat for multiple filters")
+	command.Flags().StringVar(&fullText, "ft", "", "VTEX full-text search term")
+	command.Flags().StringVar(&order, "order", "", "VTEX O sorting value, such as OrderByPriceASC")
+	command.Flags().IntVar(&from, "from", 0, "Initial result index")
+	command.Flags().IntVar(&to, "to", 9, "Final result index; VTEX allows at most 50 results per request")
+	return command
 }
 
 func newGeoCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Command {

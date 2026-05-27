@@ -54,8 +54,12 @@ func inputValueMatchesType(value any, inputType capability.InputType) bool {
 		_, ok := value.(map[string]any)
 		return ok
 	case capability.InputTypeArray:
-		_, ok := value.([]any)
-		return ok
+		switch value.(type) {
+		case []any, []string:
+			return true
+		default:
+			return false
+		}
 	default:
 		return true
 	}

@@ -2,6 +2,7 @@ package app
 
 import (
 	"github.com/yargotev/exito-tools/internal/config"
+	"github.com/yargotev/exito-tools/internal/domain/catalog"
 	"github.com/yargotev/exito-tools/internal/domain/geo"
 	"github.com/yargotev/exito-tools/internal/domain/orders"
 	"github.com/yargotev/exito-tools/internal/registry"
@@ -34,6 +35,9 @@ func New(options Options) (*Application, error) {
 		return nil, err
 	}
 	if err := builder.RegisterExecutable(geo.NewGeocodeAddressCapability(geoGeocoder(effectiveConfig))); err != nil {
+		return nil, err
+	}
+	if err := builder.RegisterExecutable(catalog.NewSearchProductsCapability(catalogSearcher(effectiveConfig))); err != nil {
 		return nil, err
 	}
 
@@ -86,4 +90,18 @@ func geoGeocoder(effectiveConfig config.Effective) geo.Geocoder {
 		BaseURL: effectiveConfig.GeoProvider.BaseURL,
 		Token:   effectiveConfig.GeoProvider.Token,
 	}, nil)
+}
+
+func catalogSearcher(effectiveConfig config.Effective) catalog.Searcher {
+	return catalog.NewBrandSearcher(
+		catalogBrandSearcher(effectiveConfig.VTEXCatalogProvider.Exito),
+		catalogBrandSearcher(effectiveConfig.VTEXCatalogProvider.Carulla),
+	)
+}
+
+func catalogBrandSearcher(provider config.VTEXCatalogBrandProvider) catalog.Searcher {
+	if !provider.Configured {
+		return catalog.UnavailableSearcher{}
+	}
+	return catalog.NewHTTPSearcher(catalog.HTTPSearcherConfig{BaseURL: provider.BaseURL}, nil)
 }

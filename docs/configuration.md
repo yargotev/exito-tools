@@ -17,6 +17,11 @@ profiles:
         baseUrl: https://master--exito.myvtex.com
       carulla:
         baseUrl: https://master--carullaqa.myvtex.com
+    vtexCatalog:
+      exito:
+        baseUrl: https://exito.vtexcommercestable.com.br
+      carulla:
+        baseUrl: https://carulla.vtexcommercestable.com.br
 ```
 
 `defaultProfile` stores the saved Default Profile used when neither `--profile` nor `EXITO_PROFILE` is set. Secrets and provider tokens must stay in environment variables or non-committed dotenv files, not YAML.
@@ -93,3 +98,15 @@ CARULLA_APP_TOKEN=...
 ```
 
 VTEX OMS credentials are sensitive and must only live in the real process environment or non-committed dotenv files. The resolver chooses QA variables for non-production profiles and production variables for `prod`/`production`/`pdn` profiles. Secret values are kept out of JSON serialization; only presence/source metadata may be exposed.
+
+### VTEX Catalog
+
+```env
+# Public catalog Search API endpoints can also live in YAML profiles.<profile>.vtexCatalog.<brand>.baseUrl.
+EXITO_VTEX_CATALOG_BASE_URL_QA=https://exito.vtexcommercestable.com.br
+EXITO_VTEX_CATALOG_BASE_URL_PROD=https://www.exito.com
+CARULLA_VTEX_CATALOG_BASE_URL_QA=https://carulla.vtexcommercestable.com.br
+CARULLA_VTEX_CATALOG_BASE_URL_PROD=https://www.carulla.com
+```
+
+VTEX Catalog product search uses public storefront Search API endpoints and does not require VTEX app credentials. The resolver chooses QA variables for non-production profiles and production variables for `prod`/`production`/`pdn` profiles. Environment and dotenv values override YAML base URLs.

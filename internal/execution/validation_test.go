@@ -39,6 +39,10 @@ func TestValidateInput(t *testing.T) {
 			input: capability.Input{"id": "A123"},
 		},
 		{
+			name:  "string slices are accepted as arrays for CLI flags",
+			input: capability.Input{"id": "A123", "tags": []string{"priority"}},
+		},
+		{
 			name:    "missing required field",
 			input:   capability.Input{"count": 1},
 			wantErr: execution.ErrorInvalidInput,

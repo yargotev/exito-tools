@@ -982,3 +982,44 @@ func TestVTEXOMSCredentialsAreOmittedFromEffectiveJSON(t *testing.T) {
 		t.Fatalf("effective config should expose only VTEX credential presence metadata: %s", string(encoded))
 	}
 }
+
+func TestResolveVTEXCatalogProviderConfiguration(t *testing.T) {
+	t.Parallel()
+
+	t.Run("staging resolves Exito catalog YAML base URL", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		writeTextFile(t, filepath.Join(workDir, "exito.yaml"), `defaultProfile: staging
+profiles:
+  staging:
+    vtexCatalog:
+      exito:
+        baseUrl: https://exito.vtexcommercestable.com.br
+`)
+
+		resolved := resolveForTest(t, config.Options{WorkDir: workDir, Env: map[string]string{}})
+		provider := resolved.VTEXCatalogProvider.Exito
+		if !provider.Configured {
+			t.Fatalf("Exito VTEX Catalog provider should be configured: %#v", provider)
+		}
+		if provider.BaseURL != "https://exito.vtexcommercestable.com.br" || provider.BaseURLSource != config.SourceConfigFile {
+			t.Fatalf("base URL = (%q,%q), want YAML config-file", provider.BaseURL, provider.BaseURLSource)
+		}
+	})
+
+	t.Run("prod resolves Carulla catalog environment base URL", func(t *testing.T) {
+		t.Parallel()
+
+		resolved := resolveForTest(t, config.Options{
+			Profile: "prod",
+			Env: map[string]string{
+				"CARULLA_VTEX_CATALOG_BASE_URL_PROD": "https://www.carulla.com",
+			},
+		})
+		provider := resolved.VTEXCatalogProvider.Carulla
+		if !provider.Configured || provider.BaseURL != "https://www.carulla.com" || provider.BaseURLSource != config.SourceEnvironment {
+			t.Fatalf("Carulla VTEX Catalog provider = %#v, want configured prod environment value", provider)
+		}
+	})
+}

@@ -9,6 +9,7 @@ import (
 	"github.com/yargotev/exito-tools/internal/app"
 	"github.com/yargotev/exito-tools/internal/capability"
 	"github.com/yargotev/exito-tools/internal/config"
+	"github.com/yargotev/exito-tools/internal/domain/catalog"
 	"github.com/yargotev/exito-tools/internal/domain/geo"
 	"github.com/yargotev/exito-tools/internal/domain/orders"
 	"github.com/yargotev/exito-tools/internal/execution"
@@ -66,6 +67,7 @@ func TestNewWiresBootCapabilities(t *testing.T) {
 		{id: "orders.get", domain: "orders"},
 		{id: "orders.get-vtex", domain: "orders"},
 		{id: "geo.geocode-address", domain: "geo"},
+		{id: "catalog.search-products", domain: "catalog"},
 	}
 
 	for _, tt := range tests {
@@ -199,5 +201,55 @@ func TestNewWiresConfiguredOrdersHTTPGetter(t *testing.T) {
 	}
 	if got.Order.ID != "A123" || got.Order.Status != "7500" {
 		t.Fatalf("result = %#v, want mapped provider order", got)
+	}
+}
+
+func TestNewWiresConfiguredCatalogHTTPSearcher(t *testing.T) {
+	t.Parallel()
+
+	var gotRequestID string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotRequestID = r.Header.Get(httpclient.HeaderRequestID)
+		if r.URL.Path != "/api/catalog_system/pub/products/search" {
+			t.Fatalf("request path = %q, want product search", r.URL.Path)
+		}
+		if r.URL.Query().Get("fq") != "productId:534690" {
+			t.Fatalf("fq = %q, want productId filter", r.URL.Query().Get("fq"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"productId":"534690","productName":"Minibar","items":[{"itemId":"912350","name":"SKU"}]}]`))
+	}))
+	defer server.Close()
+
+	application, err := app.New(app.Options{Config: config.Options{Env: map[string]string{
+		"EXITO_VTEX_CATALOG_BASE_URL_QA": server.URL,
+	}}})
+	if err != nil {
+		t.Fatalf("app.New() error = %v", err)
+	}
+
+	envelope, err := execution.NewPipeline(
+		application.Registry,
+		execution.WithRequestIDGenerator(func() (string, error) { return "req_app_catalog", nil }),
+	).Execute(context.Background(), execution.ExecuteRequest{
+		CapabilityID: catalog.CapabilitySearchProductsID,
+		Input:        capability.Input{"by": "product-id", "value": "534690", "from": 0, "to": 0},
+		Profile:      application.Config.Profile,
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !envelope.OK {
+		t.Fatalf("OK = false, want true: %#v", envelope.Error)
+	}
+	if gotRequestID != "req_app_catalog" {
+		t.Fatalf("%s = %q, want req_app_catalog", httpclient.HeaderRequestID, gotRequestID)
+	}
+	got, ok := (*envelope.Data).(catalog.SearchProductsResult)
+	if !ok {
+		t.Fatalf("Data = %T, want catalog.SearchProductsResult", *envelope.Data)
+	}
+	if got.Count != 1 || got.Products[0].ProductID != "534690" {
+		t.Fatalf("result = %#v, want mapped catalog product", got)
 	}
 }
