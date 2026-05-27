@@ -1143,3 +1143,65 @@ func TestCatalogSearchProductsCommandPassesAdvancedFilters(t *testing.T) {
 		t.Fatalf("Execute() error = %v\nstdout: %s", err, stdout.String())
 	}
 }
+
+func TestGeoResolveVTEXRegionCommandRunsCapability(t *testing.T) {
+	root := clisurface.NewRoot(func(options app.Options) (*app.Application, error) {
+		builder := registry.NewBuilder()
+		if err := builder.RegisterExecutable(capability.Executable{
+			Definition: geo.ResolveVTEXRegionDefinition(),
+			Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
+				if request.Input["brand"] != "carulla" || request.Input["country"] != "COL" || request.Input["salesChannel"] != "1" || request.Input["longitude"] != "-74.160580822" || request.Input["latitude"] != "4.598090587" {
+					t.Fatalf("input = %#v, want VTEX region flags", request.Input)
+				}
+				return capability.ExecutionResult{Data: geo.ResolveVTEXRegionResult{Brand: "carulla", Country: "COL", SalesChannel: "1", HasCoverage: true}}, nil
+			},
+		}); err != nil {
+			t.Fatalf("RegisterExecutable() error = %v", err)
+		}
+		return &app.Application{Config: config.Effective{Profile: "staging"}, ConfigOptions: options.Config, Registry: builder.Finalize()}, nil
+	})
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stdout)
+	root.SetArgs([]string{"--correlation-id", "corr-region", "geo", "resolve-vtex-region", "--brand", "carulla", "--country", "COL", "--sales-channel", "1", "--longitude", "-74.160580822", "--latitude", "4.598090587"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	var got struct {
+		OK   bool `json:"ok"`
+		Data struct {
+			Brand       string `json:"brand"`
+			HasCoverage bool   `json:"hasCoverage"`
+		} `json:"data"`
+		Meta struct {
+			CorrelationID string `json:"correlationId"`
+			CapabilityID  string `json:"capabilityId"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("VTEX region output is not JSON: %v\n%s", err, stdout.String())
+	}
+	if !got.OK || got.Data.Brand != "carulla" || !got.Data.HasCoverage {
+		t.Fatalf("output = %#v, want successful VTEX region result", got)
+	}
+	if got.Meta.CorrelationID != "corr-region" || got.Meta.CapabilityID != geo.CapabilityResolveVTEXRegionID {
+		t.Fatalf("metadata = %#v, want VTEX region capability", got.Meta)
+	}
+}
+
+func TestGeoResolveVTEXRegionCommandRequiresCoordinatesAndSalesChannel(t *testing.T) {
+	root := clisurface.NewRoot(app.New)
+	var output bytes.Buffer
+	root.SetOut(&output)
+	root.SetErr(&output)
+	root.SetArgs([]string{"geo", "resolve-vtex-region", "--longitude", "-74", "--latitude", "4"})
+
+	if err := root.Execute(); err == nil {
+		t.Fatalf("Execute() error = nil, want missing required flag error")
+	}
+	if strings.Contains(output.String(), "{\"ok\"") {
+		t.Fatalf("missing flag error should not emit JSON envelope\n%s", output.String())
+	}
+}

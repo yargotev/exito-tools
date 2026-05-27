@@ -363,6 +363,7 @@ func newGeoCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Command 
 		Short: "Run Geo Domain commands",
 	}
 	command.AddCommand(newGeoGeocodeAddressCommand(bootstrap, options))
+	command.AddCommand(newGeoResolveVTEXRegionCommand(bootstrap, options))
 	return command
 }
 
@@ -402,6 +403,55 @@ func newGeoGeocodeAddressCommand(bootstrap Bootstrapper, options *rootOptions) *
 	command.Flags().StringVar(&address, "address", "", "Address to geocode")
 	_ = command.MarkFlagRequired("city")
 	_ = command.MarkFlagRequired("address")
+	return command
+}
+
+func newGeoResolveVTEXRegionCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Command {
+	var brand string
+	var country string
+	var salesChannel string
+	var longitude string
+	var latitude string
+
+	command := &cobra.Command{
+		Use:   "resolve-vtex-region",
+		Short: "Resolve VTEX region coverage from known coordinates",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			application, err := bootstrap(appOptions(*options))
+			if err != nil {
+				return err
+			}
+
+			pipeline := execution.NewPipeline(application.Registry)
+			envelope, err := pipeline.Execute(cmd.Context(), execution.ExecuteRequest{
+				CapabilityID: geo.CapabilityResolveVTEXRegionID,
+				Input: capability.Input{
+					"brand":        brand,
+					"country":      country,
+					"salesChannel": salesChannel,
+					"longitude":    longitude,
+					"latitude":     latitude,
+				},
+				Profile:       application.Config.Profile,
+				CorrelationID: options.correlationID,
+			})
+			if err != nil {
+				return err
+			}
+
+			return writeExecutionEnvelope(cmd.OutOrStdout(), envelope)
+		},
+	}
+
+	command.Flags().StringVar(&brand, "brand", "exito", "VTEX brand account to query: exito or carulla")
+	command.Flags().StringVar(&country, "country", "COL", "VTEX country code")
+	command.Flags().StringVar(&salesChannel, "sales-channel", "", "VTEX sales channel/trade policy passed as sc")
+	command.Flags().StringVar(&longitude, "longitude", "", "Longitude coordinate; sent before latitude in geoCoordinates")
+	command.Flags().StringVar(&latitude, "latitude", "", "Latitude coordinate; sent after longitude in geoCoordinates")
+	_ = command.MarkFlagRequired("sales-channel")
+	_ = command.MarkFlagRequired("longitude")
+	_ = command.MarkFlagRequired("latitude")
 	return command
 }
 

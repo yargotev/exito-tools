@@ -37,6 +37,9 @@ func New(options Options) (*Application, error) {
 	if err := builder.RegisterExecutable(geo.NewGeocodeAddressCapability(geoGeocoder(effectiveConfig))); err != nil {
 		return nil, err
 	}
+	if err := builder.RegisterExecutable(geo.NewResolveVTEXRegionCapability(geoVTEXRegionResolver(effectiveConfig))); err != nil {
+		return nil, err
+	}
 	if err := builder.RegisterExecutable(catalog.NewSearchProductsCapability(catalogSearcher(effectiveConfig))); err != nil {
 		return nil, err
 	}
@@ -121,4 +124,18 @@ func catalogIntelligentBrandSearcher(provider config.VTEXCatalogBrandProvider) c
 		return catalog.UnavailableIntelligentSearcher{}
 	}
 	return catalog.NewHTTPIntelligentSearcher(catalog.HTTPIntelligentSearcherConfig{BaseURL: provider.BaseURL}, nil)
+}
+
+func geoVTEXRegionResolver(effectiveConfig config.Effective) geo.VTEXRegionResolver {
+	return geo.NewVTEXBrandRegionResolver(
+		geoVTEXBrandRegionResolver(effectiveConfig.VTEXCatalogProvider.Exito),
+		geoVTEXBrandRegionResolver(effectiveConfig.VTEXCatalogProvider.Carulla),
+	)
+}
+
+func geoVTEXBrandRegionResolver(provider config.VTEXCatalogBrandProvider) geo.VTEXRegionResolver {
+	if !provider.Configured {
+		return geo.UnavailableVTEXRegionResolver{}
+	}
+	return geo.NewHTTPVTEXRegionResolver(geo.HTTPVTEXRegionResolverConfig{BaseURL: provider.BaseURL}, nil)
 }

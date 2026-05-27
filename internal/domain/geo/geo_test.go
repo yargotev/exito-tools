@@ -3,6 +3,9 @@ package geo_test
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/yargotev/exito-tools/internal/capability"
@@ -135,4 +138,116 @@ func (g *fakeGeocoder) GeocodeAddress(_ context.Context, input geo.GeocodeAddres
 		return geo.GeocodeAddressResult{}, g.err
 	}
 	return g.result, nil
+}
+
+func TestResolveVTEXRegionCapabilityExecutesUseCase(t *testing.T) {
+	t.Parallel()
+
+	resolver := &fakeVTEXRegionResolver{result: geo.ResolveVTEXRegionResult{Brand: "carulla", HasCoverage: true}}
+	envelope, err := pipelineWithVTEXRegionResolver(t, resolver).Execute(context.Background(), execution.ExecuteRequest{
+		CapabilityID: geo.CapabilityResolveVTEXRegionID,
+		Input: capability.Input{
+			"brand":        "carulla",
+			"country":      "COL",
+			"salesChannel": "1",
+			"longitude":    "-74.160580822",
+			"latitude":     "4.598090587",
+		},
+		Profile: "staging",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !envelope.OK {
+		t.Fatalf("OK = false, want true: %#v", envelope.Error)
+	}
+	if resolver.got.Brand != "carulla" || resolver.got.Country != "COL" || resolver.got.SalesChannel != "1" || resolver.got.Longitude != "-74.160580822" || resolver.got.Latitude != "4.598090587" {
+		t.Fatalf("resolver input = %#v", resolver.got)
+	}
+}
+
+func TestHTTPVTEXRegionResolverBuildsCoordinatesAndCoverage(t *testing.T) {
+	t.Parallel()
+
+	var gotPath string
+	var gotQuery string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotQuery = r.URL.RawQuery
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"id":"REGION-1","sellers":[{"id":"exito","name":"Account"},{"id":"seller-2","name":"Marketplace"}]}]`))
+	}))
+	defer server.Close()
+
+	resolver := geo.NewHTTPVTEXRegionResolver(geo.HTTPVTEXRegionResolverConfig{BaseURL: server.URL}, server.Client())
+	result, err := resolver.ResolveVTEXRegion(context.Background(), geo.ResolveVTEXRegionInput{
+		Brand:        "exito",
+		Country:      "COL",
+		SalesChannel: "1",
+		Longitude:    "-74.160580822",
+		Latitude:     "4.598090587",
+	})
+	if err != nil {
+		t.Fatalf("ResolveVTEXRegion() error = %v", err)
+	}
+	if gotPath != "/api/checkout/pub/regions" {
+		t.Fatalf("path = %q", gotPath)
+	}
+	for _, want := range []string{"country=COL", "sc=1", "geoCoordinates=-74.160580822%3B4.598090587"} {
+		if !strings.Contains(gotQuery, want) {
+			t.Fatalf("query = %q, missing %s", gotQuery, want)
+		}
+	}
+	if !result.HasCoverage || len(result.Sellers) != 2 || result.Sellers[1].ID != "seller-2" {
+		t.Fatalf("result = %#v, want coverage from non-account seller", result)
+	}
+	if result.Diagnostics.RequestQuery["geoCoordinates"] != "-74.160580822;4.598090587" {
+		t.Fatalf("diagnostic query = %#v", result.Diagnostics.RequestQuery)
+	}
+}
+
+func TestHTTPVTEXRegionResolverCoverageFalseForOnlyAccountSeller(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"sellers":[{"id":"exito","name":"Account"}]}]`))
+	}))
+	defer server.Close()
+
+	resolver := geo.NewHTTPVTEXRegionResolver(geo.HTTPVTEXRegionResolverConfig{BaseURL: server.URL}, server.Client())
+	result, err := resolver.ResolveVTEXRegion(context.Background(), geo.ResolveVTEXRegionInput{Brand: "exito", Country: "COL", SalesChannel: "1", Longitude: "-74", Latitude: "4"})
+	if err != nil {
+		t.Fatalf("ResolveVTEXRegion() error = %v", err)
+	}
+	if result.HasCoverage {
+		t.Fatalf("HasCoverage = true, want false for account-only seller")
+	}
+}
+
+func pipelineWithVTEXRegionResolver(t *testing.T, resolver geo.VTEXRegionResolver) execution.Pipeline {
+	t.Helper()
+
+	builder := registry.NewBuilder()
+	if err := builder.RegisterExecutable(geo.NewResolveVTEXRegionCapability(resolver)); err != nil {
+		t.Fatalf("RegisterExecutable() error = %v", err)
+	}
+	return execution.NewPipeline(
+		builder.Finalize(),
+		execution.WithRequestIDGenerator(func() (string, error) { return "req_test", nil }),
+	)
+}
+
+type fakeVTEXRegionResolver struct {
+	result geo.ResolveVTEXRegionResult
+	err    error
+	got    geo.ResolveVTEXRegionInput
+}
+
+func (r *fakeVTEXRegionResolver) ResolveVTEXRegion(_ context.Context, input geo.ResolveVTEXRegionInput) (geo.ResolveVTEXRegionResult, error) {
+	r.got = input
+	if r.err != nil {
+		return geo.ResolveVTEXRegionResult{}, r.err
+	}
+	return r.result, nil
 }
