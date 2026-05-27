@@ -320,11 +320,19 @@ GET https://{account}.vtexcommercestable.com.br/api/checkout/pub/regions?country
 Important details:
 
 - VTEX expects coordinates as `longitude;latitude` in `geoCoordinates`, not latitude first.
-- Coverage is considered true when VTEX returns at least one seller whose `id` is different from the account name:
+- Current Exito Tools CLI coverage diagnostics consider coverage true when VTEX Checkout Regions returns at least one seller:
+
+```ts
+sellers.length > 0
+```
+
+- Historical Exito storefront logic considered coverage true only when VTEX returned at least one seller whose `id` was different from the account name:
 
 ```ts
 sellers.some((seller) => seller.id !== account)
 ```
+
+That older rule existed for storefront/product-price flows: for example, Intelligent Search may return a price for seller `exitocol`, but that seller does not identify the exact white-label store fulfilling the order. For the read-only CLI diagnostic, `hasCoverage` follows the broader VTEX Regions meaning and the raw returned sellers remain available for future business-specific interpretation.
 
 Coordinate acquisition before calling Regions may come from:
 
@@ -494,7 +502,8 @@ GET /api/checkout/pub/regions?country={country}&sc={salesChannel}&geoCoordinates
 ```
 
 - Preserve the `longitude;latitude` format exactly.
-- Return sellers, region/coverage diagnostics, and `hasCoverage = any seller.id != account`.
+- Return sellers, region/coverage diagnostics, and `hasCoverage = sellers.length > 0`.
+- Document the historical Exito storefront rule (`any seller.id != account`) as a product-price/white-label ambiguity rule, not the CLI diagnostic coverage rule.
 - No orderForm shippingData writes and no Master Data AD patches in this read-only phase.
 
 ### Phase 3 — explicit VTEX segment/session preparation

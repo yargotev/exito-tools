@@ -206,7 +206,7 @@ func TestHTTPVTEXRegionResolverBuildsCoordinatesAndCoverage(t *testing.T) {
 	}
 }
 
-func TestHTTPVTEXRegionResolverCoverageFalseForOnlyAccountSeller(t *testing.T) {
+func TestHTTPVTEXRegionResolverCoverageTrueForAccountSeller(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -220,8 +220,27 @@ func TestHTTPVTEXRegionResolverCoverageFalseForOnlyAccountSeller(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveVTEXRegion() error = %v", err)
 	}
+	if !result.HasCoverage {
+		t.Fatalf("HasCoverage = false, want true for account seller returned by Regions")
+	}
+}
+
+func TestHTTPVTEXRegionResolverCoverageFalseForNoSellers(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"id":"REGION-EMPTY","sellers":[]}]`))
+	}))
+	defer server.Close()
+
+	resolver := geo.NewHTTPVTEXRegionResolver(geo.HTTPVTEXRegionResolverConfig{BaseURL: server.URL}, server.Client())
+	result, err := resolver.ResolveVTEXRegion(context.Background(), geo.ResolveVTEXRegionInput{Brand: "exito", Country: "COL", SalesChannel: "1", Longitude: "-74", Latitude: "4"})
+	if err != nil {
+		t.Fatalf("ResolveVTEXRegion() error = %v", err)
+	}
 	if result.HasCoverage {
-		t.Fatalf("HasCoverage = true, want false for account-only seller")
+		t.Fatalf("HasCoverage = true, want false when Regions returns no sellers")
 	}
 }
 

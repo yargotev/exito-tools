@@ -19,17 +19,24 @@ Exito Tools MUST expose a read-only `geo.resolve-vtex-region` capability for VTE
 - **And** the request query MUST include `geoCoordinates={longitude};{latitude}` preserving longitude before latitude
 - **And** the result MUST include returned sellers and region diagnostics.
 
-#### Scenario: Coverage is true when a non-account seller is present
+#### Scenario: Coverage is true when any seller is present
 
 - **Given** VTEX Checkout Regions returns sellers for the requested coordinates
-- **When** any returned seller has an `id` different from the requested brand/account
+- **When** at least one returned seller has a non-empty `id`
 - **Then** `hasCoverage` MUST be `true`.
 
-#### Scenario: Coverage is false for only account seller or no sellers
+#### Scenario: Coverage is false for no sellers
 
-- **Given** VTEX Checkout Regions returns no sellers or only sellers whose `id` equals the requested brand/account
+- **Given** VTEX Checkout Regions returns no sellers
 - **When** `geo.resolve-vtex-region` succeeds
 - **Then** `hasCoverage` MUST be `false`.
+
+#### Scenario: Coverage rule preserves historical context
+
+- **Given** previous Exito storefront logic treated coverage as true only when a returned seller ID differed from the requested brand/account
+- **When** `geo.resolve-vtex-region` reports coverage diagnostics
+- **Then** Exito Tools MUST document that this CLI uses the broader VTEX Regions interpretation where any returned seller counts as coverage
+- **And** the returned sellers MUST remain available for future business-specific interpretation.
 
 #### Scenario: Region diagnostics are read-only
 

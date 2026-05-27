@@ -82,7 +82,7 @@ func (r HTTPVTEXRegionResolver) ResolveVTEXRegion(ctx context.Context, input Res
 		Country:      strings.TrimSpace(input.Country),
 		SalesChannel: strings.TrimSpace(input.SalesChannel),
 		Coordinates:  Coordinates{Longitude: strings.TrimSpace(input.Longitude), Latitude: strings.TrimSpace(input.Latitude)},
-		HasCoverage:  hasCoverage(sellers, normalizeBrand(input.Brand)),
+		HasCoverage:  hasCoverage(sellers),
 		Sellers:      sellers,
 		Diagnostics: RegionDiagnostics{
 			RequestPath:     path,
@@ -148,14 +148,14 @@ func dedupeSellers(values []RegionSeller) []RegionSeller {
 	return out
 }
 
-func hasCoverage(sellers []RegionSeller, account string) bool {
-	account = strings.ToLower(strings.TrimSpace(account))
-	for _, seller := range sellers {
-		if strings.ToLower(strings.TrimSpace(seller.ID)) != "" && strings.ToLower(strings.TrimSpace(seller.ID)) != account {
-			return true
-		}
-	}
-	return false
+func hasCoverage(sellers []RegionSeller) bool {
+	// Historical Exito storefront logic treated coverage as true only when a seller
+	// differed from the account/brand. That was useful for product-price flows where
+	// seller "exitocol" did not identify the exact white-label store fulfilling the
+	// item. This CLI reports VTEX Checkout Regions coverage diagnostics instead, so
+	// any seller returned by Regions counts as coverage and the seller list remains
+	// available for downstream business interpretation.
+	return len(sellers) > 0
 }
 
 func firstString(fields map[string]any, keys ...string) string {
