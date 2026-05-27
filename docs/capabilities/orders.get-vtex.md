@@ -7,6 +7,7 @@ Gets an order by its VTEX OMS identifier through the VTEX OMS private order deta
 - **Capability ID**: `orders.get-vtex`
 - **Domain**: Orders
 - **CLI Command**: `exito orders get-vtex --id <order-id> [--brand exito|carulla]`
+- **TUI Action**: `Get VTEX OMS order`
 - **Risk Level**: read-only
 - **Audience**: agents and people
 

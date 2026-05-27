@@ -64,6 +64,7 @@ func TestNewWiresBootCapabilities(t *testing.T) {
 		domain string
 	}{
 		{id: "orders.get", domain: "orders"},
+		{id: "orders.get-vtex", domain: "orders"},
 		{id: "geo.geocode-address", domain: "geo"},
 	}
 

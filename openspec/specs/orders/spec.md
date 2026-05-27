@@ -18,6 +18,13 @@ Exito Tools MUST expose an independent `orders.get-vtex` capability for VTEX OMS
 - **And** the result MUST be returned in the standard JSON envelope
 - **And** the capability metadata MUST use `orders.get-vtex`
 
+#### Scenario: Orders TUI exposes both provider lookups
+
+- **Given** the TUI Surface renders people-facing Orders Domain primary actions
+- **When** Orders capabilities are discovered from the shared registry
+- **Then** `orders.get` MUST appear as `Get GEOMS order`
+- **And** `orders.get-vtex` MUST appear as `Get VTEX OMS order`
+
 ### Requirement: VTEX OMS credentials stay server-side
 
 Exito Tools MUST resolve VTEX OMS app key and app token only from process environment or non-committed dotenv files, and MUST NOT expose their values in JSON-serialized effective configuration.

@@ -24,6 +24,9 @@ func TestDefinition(t *testing.T) {
 	if definition.Risk != capability.RiskReadOnly {
 		t.Fatalf("Risk = %q, want %q", definition.Risk, capability.RiskReadOnly)
 	}
+	if definition.Title != "Get GEOMS order" {
+		t.Fatalf("Title = %q, want Get GEOMS order", definition.Title)
+	}
 	if len(definition.Audiences) != 2 || definition.Audiences[0] != capability.AudienceAgents || definition.Audiences[1] != capability.AudiencePeople {
 		t.Fatalf("Audiences = %#v, want agents and people", definition.Audiences)
 	}
@@ -40,6 +43,24 @@ func TestDefinition(t *testing.T) {
 	orderTypeField := definition.InputSchema.Fields[1]
 	if orderTypeField.Name != "orderType" || orderTypeField.Type != capability.InputTypeString || orderTypeField.Required {
 		t.Fatalf("Input field = %#v, want optional string orderType", orderTypeField)
+	}
+}
+
+func TestVTEXOMSDefinitionIsPeopleFacingTUIAction(t *testing.T) {
+	t.Parallel()
+
+	definition := orders.VTEXOMSDefinition()
+	if definition.ID != orders.CapabilityGetVTEXID {
+		t.Fatalf("ID = %q, want %q", definition.ID, orders.CapabilityGetVTEXID)
+	}
+	if definition.Title != "Get VTEX OMS order" {
+		t.Fatalf("Title = %q, want Get VTEX OMS order", definition.Title)
+	}
+	if len(definition.Audiences) != 2 || definition.Audiences[0] != capability.AudienceAgents || definition.Audiences[1] != capability.AudiencePeople {
+		t.Fatalf("Audiences = %#v, want agents and people", definition.Audiences)
+	}
+	if len(definition.Visibility) != 3 || definition.Visibility[0] != capability.VisibilityCLI || definition.Visibility[1] != capability.VisibilityTUI || definition.Visibility[2] != capability.VisibilityCommandPalette {
+		t.Fatalf("Visibility = %#v, want cli, tui, command-palette", definition.Visibility)
 	}
 }
 

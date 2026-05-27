@@ -7,7 +7,7 @@ Gets an order by its identifier through GEOMS `findOrders`, enriched with `getOr
 - **Capability ID**: `orders.get`
 - **Domain**: Orders
 - **CLI Command**: `exito orders get --id <order-id> [--order-type ExitoEcomm|CarullaEcomm]`
-- **TUI Action**: `Get order by ID`
+- **TUI Action**: `Get GEOMS order`
 - **Risk Level**: read-only
 - **Audience**: agents and people
 

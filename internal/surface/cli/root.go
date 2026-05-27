@@ -231,7 +231,7 @@ func newOrdersGetCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Co
 
 	command := &cobra.Command{
 		Use:   "get",
-		Short: "Get an order by ID",
+		Short: "Get a GEOMS order by ID",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			application, err := bootstrap(appOptions(*options))
@@ -269,7 +269,7 @@ func newOrdersGetVTEXCommand(bootstrap Bootstrapper, options *rootOptions) *cobr
 
 	command := &cobra.Command{
 		Use:   "get-vtex",
-		Short: "Get an order by ID from VTEX OMS",
+		Short: "Get a VTEX OMS order by ID",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			application, err := bootstrap(appOptions(*options))

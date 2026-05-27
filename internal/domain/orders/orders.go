@@ -184,7 +184,7 @@ func Definition() capability.Definition {
 		ID:          CapabilityGetID,
 		Domain:      DomainName,
 		Version:     "1.0.0",
-		Title:       "Get order",
+		Title:       "Get GEOMS order",
 		Description: "Gets an order by its identifier.",
 		Risk:        capability.RiskReadOnly,
 		Audiences:   []capability.Audience{capability.AudienceAgents, capability.AudiencePeople},
@@ -206,7 +206,7 @@ func VTEXOMSDefinition() capability.Definition {
 		Description: "Gets an order by its identifier from VTEX OMS.",
 		Risk:        capability.RiskReadOnly,
 		Audiences:   []capability.Audience{capability.AudienceAgents, capability.AudiencePeople},
-		Visibility:  []capability.Visibility{capability.VisibilityCLI, capability.VisibilityCommandPalette},
+		Visibility:  []capability.Visibility{capability.VisibilityCLI, capability.VisibilityTUI, capability.VisibilityCommandPalette},
 		InputSchema: &capability.InputSchema{Fields: []capability.InputField{
 			{Name: "id", Type: capability.InputTypeString, Required: true, Description: "VTEX OMS order identifier, such as 1611511090420-01."},
 			{Name: "brand", Type: capability.InputTypeString, Required: false, Description: "VTEX brand account to query: exito or carulla. Defaults to exito."},

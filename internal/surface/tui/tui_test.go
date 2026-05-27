@@ -52,6 +52,22 @@ func TestModelViewShowsProfileAndPrimaryActions(t *testing.T) {
 	}
 }
 
+func TestAppModelShowsGEOMSAndVTEXOMSOrdersPrimaryActions(t *testing.T) {
+	t.Parallel()
+
+	application, err := app.New(app.Options{Config: config.Options{Env: map[string]string{}}})
+	if err != nil {
+		t.Fatalf("app.New() error = %v", err)
+	}
+
+	view := tui.NewModel(application).View()
+	for _, fragment := range []string{"Get GEOMS order (orders.get)", "Get VTEX OMS order (orders.get-vtex)"} {
+		if !strings.Contains(view, fragment) {
+			t.Fatalf("view missing Orders primary action %q\n%s", fragment, view)
+		}
+	}
+}
+
 func TestCommandPaletteShowsPeopleFacingPaletteActions(t *testing.T) {
 	t.Parallel()
 
