@@ -10,9 +10,9 @@ context: |
 
 testing:
   detected_at: 2026-05-25
-  strict_tdd: false
+  strict_tdd: true
   availability: available
-  reason: Initial Go module and focused unit tests are present; strict TDD was disabled during bootstrap because no runner existed before this slice.
+  reason: Initial Go module and focused unit tests are present; strict TDD is enabled now that the Go test runner and focused unit tests are available.
   test_runner:
     framework: go test
     command: go test ./...
@@ -55,7 +55,7 @@ rules:
     - Prefer deep-module foundations before surface adapters, matching the PRD sequence.
   apply:
     - Follow existing terminology from CONTEXT.md and docs/adr.
-    tdd: false
+    tdd: true
     test_command: go test ./...
   verify:
     test_command: go test ./...
