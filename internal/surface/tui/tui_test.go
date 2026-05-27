@@ -1150,3 +1150,103 @@ func TestTUIE2EPrimaryActionCollectsOptionalInputAndRunsPipeline(t *testing.T) {
 		}
 	}
 }
+
+func TestInputFormVimNormalModeMovesCursorAndDeletesUnderCursor(t *testing.T) {
+	t.Parallel()
+
+	gotQuery := ""
+	builder := registry.NewBuilder()
+	if err := builder.RegisterExecutable(capability.Executable{
+		Definition: capability.Definition{
+			ID:         "geo.search",
+			Domain:     "geo",
+			Title:      "Search",
+			Audiences:  []capability.Audience{capability.AudiencePeople},
+			Visibility: []capability.Visibility{capability.VisibilityTUI},
+			InputSchema: &capability.InputSchema{Fields: []capability.InputField{
+				{Name: "query", Type: capability.InputTypeString, Required: true},
+			}},
+		},
+		Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
+			gotQuery, _ = request.Input["query"].(string)
+			return capability.ExecutionResult{Data: map[string]any{"query": gotQuery}}, nil
+		},
+	}); err != nil {
+		t.Fatalf("RegisterExecutable() error = %v", err)
+	}
+
+	var model tea.Model = tui.NewModel(&app.Application{Registry: builder.Finalize()})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("bat")})
+
+	view := model.(tui.Model).View()
+	if !strings.Contains(view, "> query: bat▌") {
+		t.Fatalf("insert mode should render cursor after typed text\n%s", view)
+	}
+
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	view = model.(tui.Model).View()
+	if !strings.Contains(view, "Keyboard: Vim normal") {
+		t.Fatalf("esc in form should enter Vim normal mode\n%s", view)
+	}
+
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	view = model.(tui.Model).View()
+	if !strings.Contains(view, "> query: b▌t") {
+		t.Fatalf("h/h/x should remove the character under the cursor\n%s", view)
+	}
+
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+	model, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatalf("submit command = nil, want execution command")
+	}
+	_, _ = model.Update(cmd())
+	if gotQuery != "bot" {
+		t.Fatalf("query = %q, want bot", gotQuery)
+	}
+}
+
+func TestInputFormPlainModeLetsHJKLEditText(t *testing.T) {
+	t.Parallel()
+
+	gotQuery := ""
+	builder := registry.NewBuilder()
+	if err := builder.RegisterExecutable(capability.Executable{
+		Definition: capability.Definition{
+			ID:         "geo.search",
+			Domain:     "geo",
+			Title:      "Search",
+			Audiences:  []capability.Audience{capability.AudiencePeople},
+			Visibility: []capability.Visibility{capability.VisibilityTUI},
+			InputSchema: &capability.InputSchema{Fields: []capability.InputField{
+				{Name: "query", Type: capability.InputTypeString, Required: true},
+			}},
+		},
+		Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
+			gotQuery, _ = request.Input["query"].(string)
+			return capability.ExecutionResult{Data: map[string]any{"query": gotQuery}}, nil
+		},
+	}); err != nil {
+		t.Fatalf("RegisterExecutable() error = %v", err)
+	}
+
+	var model tea.Model = tui.NewModel(&app.Application{Registry: builder.Finalize()})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	if !strings.Contains(model.(tui.Model).View(), "Keyboard: Plain") {
+		t.Fatalf("v should toggle to plain keyboard mode\n%s", model.(tui.Model).View())
+	}
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("hjkl")})
+	model, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatalf("submit command = nil, want execution command")
+	}
+	_, _ = model.Update(cmd())
+	if gotQuery != "hjkl" {
+		t.Fatalf("query = %q, want hjkl", gotQuery)
+	}
+}

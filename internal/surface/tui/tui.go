@@ -57,6 +57,7 @@ type Model struct {
 	task           taskState
 	taskCancel     context.CancelFunc
 	resultFilter   resultFilterState
+	vimEnabled     bool
 }
 
 type taskStatus string
@@ -79,6 +80,7 @@ type taskState struct {
 type resultFilterState struct {
 	Active bool
 	Query  string
+	Cursor int
 }
 
 type actionExecutedMsg struct {
@@ -91,18 +93,24 @@ type formState struct {
 	CapabilityID string
 	Fields       []capability.InputField
 	Values       []string
+	Cursors      []int
 	Index        int
+	InsertMode   bool
 }
 
 type profileFormState struct {
-	Active bool
-	Value  string
+	Active     bool
+	Value      string
+	Cursor     int
+	InsertMode bool
 }
 
 type defaultProfileFormState struct {
-	Active bool
-	Value  string
-	Status string
+	Active     bool
+	Value      string
+	Cursor     int
+	InsertMode bool
+	Status     string
 }
 
 type defaultProfileSavedMsg struct {
@@ -127,6 +135,7 @@ func NewModel(application *app.Application) Model {
 		registry:       application.Registry,
 		configOptions:  application.ConfigOptions,
 		profile:        application.Config.Profile,
+		vimEnabled:     true,
 		primaryActions: primaryActions(application.Registry.All()),
 		paletteActions: paletteActions(application.Registry.All()),
 	}
@@ -174,10 +183,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+c", "q":
 			return m, tea.Quit
-		case "up", "k":
+		case "v":
+			m.vimEnabled = !m.vimEnabled
+		case "up":
 			m.movePrimary(-1)
-		case "down", "j":
+		case "down":
 			m.movePrimary(1)
+		case "k":
+			if m.vimEnabled {
+				m.movePrimary(-1)
+			}
+		case "j":
+			if m.vimEnabled {
+				m.movePrimary(1)
+			}
 		case "enter":
 			return m.selectPrimaryAction()
 		case "/":
@@ -189,9 +208,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.resultFilter = resultFilterState{Active: true}
 			}
 		case "p":
-			m.profileForm = profileFormState{Active: true}
+			m.profileForm = profileFormState{Active: true, InsertMode: true}
 		case "d":
-			m.defaultProfile = defaultProfileFormState{Active: true}
+			m.defaultProfile = defaultProfileFormState{Active: true, InsertMode: true}
 		}
 	case actionExecutedMsg:
 		if m.task.Status == taskCancelled && m.task.CapabilityID == msg.envelope.Meta.CapabilityID {
@@ -245,6 +264,7 @@ func (m Model) View() string {
 	builder.WriteString("\n")
 	fmt.Fprintf(&builder, "%s %s\n", mutedStyle.Render("Profile:"), pillStyle.Render(profileLabel(m.profile)))
 	fmt.Fprintf(&builder, "%s %d\n", mutedStyle.Render("Primary actions:"), len(m.primaryActions))
+	fmt.Fprintf(&builder, "%s %s\n", mutedStyle.Render("Keyboard:"), pillStyle.Render(m.keyboardModeLabel()))
 	builder.WriteString(mutedStyle.Render("Navigate with ↑/↓ or j/k, press enter to run, / for palette."))
 	builder.WriteString("\n\n")
 
@@ -290,9 +310,9 @@ func (m Model) View() string {
 			if index == m.form.Index {
 				prefix = ">"
 			}
-			fmt.Fprintf(&builder, "%s %s: %s\n", prefix, field.Name, m.form.Values[index])
+			fmt.Fprintf(&builder, "%s %s: %s\n", prefix, field.Name, m.form.renderedValue(index))
 		}
-		builder.WriteString("Press enter to continue.\n")
+		fmt.Fprintf(&builder, "%s\n", m.form.helpText(m.vimEnabled))
 	}
 
 	if m.profileForm.Active {
@@ -300,8 +320,9 @@ func (m Model) View() string {
 		builder.WriteString(sectionStyle.Render("Session Profile"))
 		builder.WriteString("\n")
 		fmt.Fprintf(&builder, "Current: %s\n", profileLabel(m.profile))
-		fmt.Fprintf(&builder, "> New profile: %s\n", m.profileForm.Value)
-		builder.WriteString("Press enter to apply or esc to cancel.\n")
+		fmt.Fprintf(&builder, "> New profile: %s\n", renderInputValue(m.profileForm.Value, m.profileForm.Cursor, true))
+		builder.WriteString(textInputHelp(m.vimEnabled, m.profileForm.InsertMode, "apply", "cancel"))
+		builder.WriteString("\n")
 	}
 
 	if m.defaultProfile.Active {
@@ -309,8 +330,9 @@ func (m Model) View() string {
 		builder.WriteString(sectionStyle.Render("Default Profile"))
 		builder.WriteString("\n")
 		fmt.Fprintf(&builder, "Current session: %s\n", profileLabel(m.profile))
-		fmt.Fprintf(&builder, "> Save default as: %s\n", m.defaultProfile.Value)
-		builder.WriteString("Press enter to save or esc to cancel.\n")
+		fmt.Fprintf(&builder, "> Save default as: %s\n", renderInputValue(m.defaultProfile.Value, m.defaultProfile.Cursor, true))
+		builder.WriteString(textInputHelp(m.vimEnabled, m.defaultProfile.InsertMode, "save", "cancel"))
+		builder.WriteString("\n")
 	} else if m.defaultProfile.Status != "" {
 		builder.WriteString("\n")
 		builder.WriteString(sectionStyle.Render("Default Profile"))
@@ -337,7 +359,7 @@ func (m Model) View() string {
 		builder.WriteString("\n")
 		builder.WriteString(sectionStyle.Render("Command Palette"))
 		builder.WriteString("\n")
-		fmt.Fprintf(&builder, "Search: %s\n", m.paletteQuery)
+		fmt.Fprintf(&builder, "Search: %s\n", renderInputValue(m.paletteQuery, len([]rune(m.paletteQuery)), true))
 		matches := m.filteredPaletteActions()
 		if len(matches) == 0 {
 			builder.WriteString("No actions found.\n")
@@ -353,7 +375,7 @@ func (m Model) View() string {
 	}
 
 	builder.WriteString("\n")
-	builder.WriteString(mutedStyle.Render("Keys: j/k or arrows navigate • enter run/select • / palette • p session profile • d default profile • f filter results • esc cancel/close • q quit"))
+	builder.WriteString(mutedStyle.Render("Keys: j/k or arrows navigate • h/l move cursor in Vim normal inputs • i insert • x delete • v Vim/plain • enter run/select • / palette • p session profile • d default profile • f filter results • esc cancel/close • q quit"))
 	builder.WriteString("\n")
 	builder.WriteString("Press p to change session profile. Press d to save default profile. Press q to quit.\n")
 	return builder.String()
@@ -392,9 +414,19 @@ func (m Model) updatePalette(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyRunes:
 		switch string(msg.Runes) {
 		case "j":
-			m.movePalette(1)
+			if m.vimEnabled {
+				m.movePalette(1)
+			} else {
+				m.paletteQuery += string(msg.Runes)
+				m.paletteIndex = m.clampedPaletteIndex(len(m.filteredPaletteActions()))
+			}
 		case "k":
-			m.movePalette(-1)
+			if m.vimEnabled {
+				m.movePalette(-1)
+			} else {
+				m.paletteQuery += string(msg.Runes)
+				m.paletteIndex = m.clampedPaletteIndex(len(m.filteredPaletteActions()))
+			}
 		default:
 			m.paletteQuery += string(msg.Runes)
 			m.paletteIndex = m.clampedPaletteIndex(len(m.filteredPaletteActions()))
@@ -413,64 +445,132 @@ func (m Model) updateResultFilter(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyCtrlC:
 		return m, tea.Quit
 	case tea.KeyBackspace:
-		if len(m.resultFilter.Query) > 0 {
-			runes := []rune(m.resultFilter.Query)
-			m.resultFilter.Query = string(runes[:len(runes)-1])
-		}
+		m.resultFilter.Query, m.resultFilter.Cursor = deleteBeforeCursor(m.resultFilter.Query, m.resultFilter.Cursor)
+	case tea.KeyDelete:
+		m.resultFilter.Query = deleteAtCursor(m.resultFilter.Query, m.resultFilter.Cursor)
+	case tea.KeyLeft:
+		m.resultFilter.Cursor = moveStringCursor(m.resultFilter.Query, m.resultFilter.Cursor, -1)
+	case tea.KeyRight:
+		m.resultFilter.Cursor = moveStringCursor(m.resultFilter.Query, m.resultFilter.Cursor, 1)
 	case tea.KeyRunes:
-		m.resultFilter.Query += string(msg.Runes)
+		m.resultFilter.Query, m.resultFilter.Cursor = insertAtCursor(m.resultFilter.Query, m.resultFilter.Cursor, string(msg.Runes))
 	}
 
 	return m, nil
 }
 
 func (m Model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.vimEnabled && !m.form.InsertMode {
+		return m.updateFormNormal(msg)
+	}
+
 	switch msg.Type {
 	case tea.KeyEsc:
+		if m.vimEnabled {
+			m.form.InsertMode = false
+			return m, nil
+		}
 		m.form = formState{}
 	case tea.KeyCtrlC:
 		return m, tea.Quit
 	case tea.KeyBackspace:
-		current := []rune(m.form.Values[m.form.Index])
-		if len(current) > 0 {
-			m.form.Values[m.form.Index] = string(current[:len(current)-1])
-		}
+		m.form.deleteBeforeCursor()
+	case tea.KeyDelete:
+		m.form.deleteAtCursor()
+	case tea.KeyLeft:
+		m.form.moveCursor(-1)
+	case tea.KeyRight:
+		m.form.moveCursor(1)
+	case tea.KeyUp:
+		m.form.moveField(-1)
+	case tea.KeyDown:
+		m.form.moveField(1)
 	case tea.KeyRunes, tea.KeySpace:
-		m.form.Values[m.form.Index] += msg.String()
+		m.form.insertText(msg.String())
 	case tea.KeyEnter:
-		if m.form.Fields[m.form.Index].Required && strings.TrimSpace(m.form.Values[m.form.Index]) == "" {
-			return m, nil
-		}
-		if m.form.Index < len(m.form.Fields)-1 {
-			m.form.Index++
-			return m, nil
-		}
-		input := m.form.input()
-		capabilityID := m.form.CapabilityID
-		definition, ok := m.findDefinition(capabilityID)
-		m.form = formState{}
-		if !ok {
-			return m.startExecution(capabilityID, input, false)
-		}
-		return m.confirmOrStartExecution(definition, input)
+		return m.submitForm()
 	}
 
 	return m, nil
 }
 
+func (m Model) updateFormNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.form = formState{}
+	case tea.KeyCtrlC:
+		return m, tea.Quit
+	case tea.KeyEnter:
+		return m.submitForm()
+	case tea.KeyUp:
+		m.form.moveField(-1)
+	case tea.KeyDown:
+		m.form.moveField(1)
+	case tea.KeyLeft:
+		m.form.moveCursor(-1)
+	case tea.KeyRight:
+		m.form.moveCursor(1)
+	case tea.KeyRunes:
+		switch string(msg.Runes) {
+		case "i":
+			m.form.InsertMode = true
+		case "a":
+			m.form.moveCursor(1)
+			m.form.InsertMode = true
+		case "h":
+			m.form.moveCursor(-1)
+		case "l":
+			m.form.moveCursor(1)
+		case "j":
+			m.form.moveField(1)
+		case "k":
+			m.form.moveField(-1)
+		case "x":
+			m.form.deleteAtCursor()
+		}
+	}
+	return m, nil
+}
+
+func (m Model) submitForm() (tea.Model, tea.Cmd) {
+	if m.form.Fields[m.form.Index].Required && strings.TrimSpace(m.form.Values[m.form.Index]) == "" {
+		return m, nil
+	}
+	if m.form.Index < len(m.form.Fields)-1 {
+		m.form.Index++
+		m.form.clampCursor()
+		return m, nil
+	}
+	input := m.form.input()
+	capabilityID := m.form.CapabilityID
+	definition, ok := m.findDefinition(capabilityID)
+	m.form = formState{}
+	if !ok {
+		return m.startExecution(capabilityID, input, false)
+	}
+	return m.confirmOrStartExecution(definition, input)
+}
+
 func (m Model) updateProfileForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.vimEnabled && !m.profileForm.InsertMode {
+		return m.updateProfileFormNormal(msg)
+	}
+
 	switch msg.Type {
 	case tea.KeyEsc:
 		m.profileForm = profileFormState{}
 	case tea.KeyCtrlC:
 		return m, tea.Quit
 	case tea.KeyBackspace:
-		current := []rune(m.profileForm.Value)
-		if len(current) > 0 {
-			m.profileForm.Value = string(current[:len(current)-1])
-		}
+		m.profileForm.Value, m.profileForm.Cursor = deleteBeforeCursor(m.profileForm.Value, m.profileForm.Cursor)
+	case tea.KeyDelete:
+		m.profileForm.Value = deleteAtCursor(m.profileForm.Value, m.profileForm.Cursor)
+	case tea.KeyLeft:
+		m.profileForm.Cursor = moveStringCursor(m.profileForm.Value, m.profileForm.Cursor, -1)
+	case tea.KeyRight:
+		m.profileForm.Cursor = moveStringCursor(m.profileForm.Value, m.profileForm.Cursor, 1)
 	case tea.KeyRunes:
-		m.profileForm.Value += string(msg.Runes)
+		m.profileForm.Value, m.profileForm.Cursor = insertAtCursor(m.profileForm.Value, m.profileForm.Cursor, string(msg.Runes))
 	case tea.KeyEnter:
 		profile := strings.TrimSpace(m.profileForm.Value)
 		if profile == "" {
@@ -483,19 +583,61 @@ func (m Model) updateProfileForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) updateProfileFormNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.profileForm = profileFormState{}
+	case tea.KeyCtrlC:
+		return m, tea.Quit
+	case tea.KeyEnter:
+		profile := strings.TrimSpace(m.profileForm.Value)
+		if profile == "" {
+			return m, nil
+		}
+		m.profile = profile
+		m.profileForm = profileFormState{}
+	case tea.KeyLeft:
+		m.profileForm.Cursor = moveStringCursor(m.profileForm.Value, m.profileForm.Cursor, -1)
+	case tea.KeyRight:
+		m.profileForm.Cursor = moveStringCursor(m.profileForm.Value, m.profileForm.Cursor, 1)
+	case tea.KeyRunes:
+		switch string(msg.Runes) {
+		case "i":
+			m.profileForm.InsertMode = true
+		case "a":
+			m.profileForm.Cursor = moveStringCursor(m.profileForm.Value, m.profileForm.Cursor, 1)
+			m.profileForm.InsertMode = true
+		case "h":
+			m.profileForm.Cursor = moveStringCursor(m.profileForm.Value, m.profileForm.Cursor, -1)
+		case "l":
+			m.profileForm.Cursor = moveStringCursor(m.profileForm.Value, m.profileForm.Cursor, 1)
+		case "x":
+			m.profileForm.Value = deleteAtCursor(m.profileForm.Value, m.profileForm.Cursor)
+		}
+	}
+	return m, nil
+}
+
 func (m Model) updateDefaultProfileForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.vimEnabled && !m.defaultProfile.InsertMode {
+		return m.updateDefaultProfileFormNormal(msg)
+	}
+
 	switch msg.Type {
 	case tea.KeyEsc:
 		m.defaultProfile = defaultProfileFormState{}
 	case tea.KeyCtrlC:
 		return m, tea.Quit
 	case tea.KeyBackspace:
-		current := []rune(m.defaultProfile.Value)
-		if len(current) > 0 {
-			m.defaultProfile.Value = string(current[:len(current)-1])
-		}
+		m.defaultProfile.Value, m.defaultProfile.Cursor = deleteBeforeCursor(m.defaultProfile.Value, m.defaultProfile.Cursor)
+	case tea.KeyDelete:
+		m.defaultProfile.Value = deleteAtCursor(m.defaultProfile.Value, m.defaultProfile.Cursor)
+	case tea.KeyLeft:
+		m.defaultProfile.Cursor = moveStringCursor(m.defaultProfile.Value, m.defaultProfile.Cursor, -1)
+	case tea.KeyRight:
+		m.defaultProfile.Cursor = moveStringCursor(m.defaultProfile.Value, m.defaultProfile.Cursor, 1)
 	case tea.KeyRunes:
-		m.defaultProfile.Value += string(msg.Runes)
+		m.defaultProfile.Value, m.defaultProfile.Cursor = insertAtCursor(m.defaultProfile.Value, m.defaultProfile.Cursor, string(msg.Runes))
 	case tea.KeyEnter:
 		profile := strings.TrimSpace(m.defaultProfile.Value)
 		if profile == "" {
@@ -505,6 +647,41 @@ func (m Model) updateDefaultProfileForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.saveDefaultProfile(profile)
 	}
 
+	return m, nil
+}
+
+func (m Model) updateDefaultProfileFormNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.defaultProfile = defaultProfileFormState{}
+	case tea.KeyCtrlC:
+		return m, tea.Quit
+	case tea.KeyEnter:
+		profile := strings.TrimSpace(m.defaultProfile.Value)
+		if profile == "" {
+			return m, nil
+		}
+		m.defaultProfile = defaultProfileFormState{}
+		return m, m.saveDefaultProfile(profile)
+	case tea.KeyLeft:
+		m.defaultProfile.Cursor = moveStringCursor(m.defaultProfile.Value, m.defaultProfile.Cursor, -1)
+	case tea.KeyRight:
+		m.defaultProfile.Cursor = moveStringCursor(m.defaultProfile.Value, m.defaultProfile.Cursor, 1)
+	case tea.KeyRunes:
+		switch string(msg.Runes) {
+		case "i":
+			m.defaultProfile.InsertMode = true
+		case "a":
+			m.defaultProfile.Cursor = moveStringCursor(m.defaultProfile.Value, m.defaultProfile.Cursor, 1)
+			m.defaultProfile.InsertMode = true
+		case "h":
+			m.defaultProfile.Cursor = moveStringCursor(m.defaultProfile.Value, m.defaultProfile.Cursor, -1)
+		case "l":
+			m.defaultProfile.Cursor = moveStringCursor(m.defaultProfile.Value, m.defaultProfile.Cursor, 1)
+		case "x":
+			m.defaultProfile.Value = deleteAtCursor(m.defaultProfile.Value, m.defaultProfile.Cursor)
+		}
+	}
 	return m, nil
 }
 
@@ -662,7 +839,7 @@ func (m Model) renderResultRows(builder *strings.Builder) {
 
 	builder.WriteString("\nResult\n")
 	if m.resultFilter.Active {
-		fmt.Fprintf(builder, "Result Filter: %s\n", m.resultFilter.Query)
+		fmt.Fprintf(builder, "Result Filter: %s\n", renderInputValue(m.resultFilter.Query, m.resultFilter.Cursor, true))
 	}
 	for _, row := range filteredResultRows(rows, m.resultFilter.Query) {
 		fmt.Fprintf(builder, "- %s\n", row)
@@ -820,7 +997,159 @@ func newFormState(capabilityID string, fields []capability.InputField) formState
 		CapabilityID: capabilityID,
 		Fields:       fields,
 		Values:       make([]string, len(fields)),
+		Cursors:      make([]int, len(fields)),
+		InsertMode:   true,
 	}
+}
+
+func (m Model) keyboardModeLabel() string {
+	if !m.vimEnabled {
+		return "Plain"
+	}
+	mode := "normal"
+	if m.form.Active && m.form.InsertMode ||
+		m.profileForm.Active && m.profileForm.InsertMode ||
+		m.defaultProfile.Active && m.defaultProfile.InsertMode {
+		mode = "insert"
+	}
+	return "Vim " + mode
+}
+
+func (f formState) renderedValue(index int) string {
+	if index < 0 || index >= len(f.Values) {
+		return ""
+	}
+	cursor := 0
+	if index < len(f.Cursors) {
+		cursor = f.Cursors[index]
+	}
+	return renderInputValue(f.Values[index], cursor, index == f.Index)
+}
+
+func (f formState) helpText(vimEnabled bool) string {
+	if !vimEnabled {
+		return "Plain input: type to edit, ←/→ move cursor, ↑/↓ move fields, enter continues, esc cancels."
+	}
+	if f.InsertMode {
+		return "Vim insert: type to edit, ←/→ move cursor, enter continues, esc returns to normal."
+	}
+	return "Vim normal: h/l move cursor, j/k move fields, i insert, a append, x delete, enter continues, esc cancels."
+}
+
+func textInputHelp(vimEnabled bool, insertMode bool, submit string, cancel string) string {
+	if !vimEnabled {
+		return fmt.Sprintf("Plain input: type to edit, ←/→ move cursor, enter to %s or esc to %s.", submit, cancel)
+	}
+	if insertMode {
+		return fmt.Sprintf("Vim insert: type to edit, ←/→ move cursor, enter to %s or esc for normal mode.", submit)
+	}
+	return fmt.Sprintf("Vim normal: h/l move cursor, i insert, a append, x delete, enter to %s or esc to %s.", submit, cancel)
+}
+
+func renderInputValue(value string, cursor int, active bool) string {
+	if !active {
+		return value
+	}
+	runes := []rune(value)
+	cursor = clamp(cursor, len(runes))
+	return string(runes[:cursor]) + "▌" + string(runes[cursor:])
+}
+
+func (f *formState) insertText(text string) {
+	if f.Index < 0 || f.Index >= len(f.Values) {
+		return
+	}
+	f.Values[f.Index], f.Cursors[f.Index] = insertAtCursor(f.Values[f.Index], f.cursor(), text)
+}
+
+func (f *formState) deleteBeforeCursor() {
+	if f.Index < 0 || f.Index >= len(f.Values) {
+		return
+	}
+	f.Values[f.Index], f.Cursors[f.Index] = deleteBeforeCursor(f.Values[f.Index], f.cursor())
+}
+
+func (f *formState) deleteAtCursor() {
+	if f.Index < 0 || f.Index >= len(f.Values) {
+		return
+	}
+	f.Values[f.Index] = deleteAtCursor(f.Values[f.Index], f.cursor())
+	f.clampCursor()
+}
+
+func (f *formState) moveCursor(delta int) {
+	if f.Index < 0 || f.Index >= len(f.Values) {
+		return
+	}
+	f.Cursors[f.Index] = moveStringCursor(f.Values[f.Index], f.cursor(), delta)
+}
+
+func (f *formState) moveField(delta int) {
+	if len(f.Fields) == 0 {
+		f.Index = 0
+		return
+	}
+	f.Index = clamp(f.Index+delta, len(f.Fields)-1)
+	f.clampCursor()
+}
+
+func (f *formState) cursor() int {
+	if f.Index < 0 || f.Index >= len(f.Cursors) {
+		return 0
+	}
+	return clamp(f.Cursors[f.Index], len([]rune(f.Values[f.Index])))
+}
+
+func (f *formState) clampCursor() {
+	if f.Index < 0 || f.Index >= len(f.Cursors) {
+		return
+	}
+	f.Cursors[f.Index] = clamp(f.Cursors[f.Index], len([]rune(f.Values[f.Index])))
+}
+
+func insertAtCursor(value string, cursor int, text string) (string, int) {
+	runes := []rune(value)
+	cursor = clamp(cursor, len(runes))
+	insert := []rune(text)
+	next := make([]rune, 0, len(runes)+len(insert))
+	next = append(next, runes[:cursor]...)
+	next = append(next, insert...)
+	next = append(next, runes[cursor:]...)
+	return string(next), cursor + len(insert)
+}
+
+func deleteBeforeCursor(value string, cursor int) (string, int) {
+	runes := []rune(value)
+	cursor = clamp(cursor, len(runes))
+	if cursor == 0 {
+		return value, cursor
+	}
+	next := append(append([]rune{}, runes[:cursor-1]...), runes[cursor:]...)
+	return string(next), cursor - 1
+}
+
+func deleteAtCursor(value string, cursor int) string {
+	runes := []rune(value)
+	cursor = clamp(cursor, len(runes))
+	if cursor >= len(runes) {
+		return value
+	}
+	next := append(append([]rune{}, runes[:cursor]...), runes[cursor+1:]...)
+	return string(next)
+}
+
+func moveStringCursor(value string, cursor int, delta int) int {
+	return clamp(cursor+delta, len([]rune(value)))
+}
+
+func clamp(value int, maximum int) int {
+	if value < 0 {
+		return 0
+	}
+	if value > maximum {
+		return maximum
+	}
+	return value
 }
 
 func (f formState) input() capability.Input {
