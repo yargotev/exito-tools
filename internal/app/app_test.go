@@ -67,7 +67,10 @@ func TestNewWiresBootCapabilities(t *testing.T) {
 		{id: "orders.get", domain: "orders"},
 		{id: "orders.get-vtex", domain: "orders"},
 		{id: "geo.geocode-address", domain: "geo"},
+		{id: "geo.resolve-vtex-region", domain: "geo"},
 		{id: "catalog.search-products", domain: "catalog"},
+		{id: "catalog.intelligent-search-products", domain: "catalog"},
+		{id: "catalog.create-vtex-segment", domain: "catalog"},
 	}
 
 	for _, tt := range tests {

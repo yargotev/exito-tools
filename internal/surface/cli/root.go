@@ -176,6 +176,7 @@ func newCatalogCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Comm
 	}
 	command.AddCommand(newCatalogSearchProductsCommand(bootstrap, options))
 	command.AddCommand(newCatalogIntelligentSearchCommand(bootstrap, options))
+	command.AddCommand(newCatalogCreateVTEXSegmentCommand(bootstrap, options))
 	return command
 }
 
@@ -243,6 +244,54 @@ func newCatalogSearchProductsCommand(bootstrap Bootstrapper, options *rootOption
 	command.Flags().StringVar(&order, "order", "", "VTEX O sorting value, such as OrderByPriceASC")
 	command.Flags().IntVar(&from, "from", 0, "Initial result index")
 	command.Flags().IntVar(&to, "to", 9, "Final result index; VTEX allows at most 50 results per request")
+	return command
+}
+
+func newCatalogCreateVTEXSegmentCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Command {
+	var brand string
+	var regionID string
+	var salesChannel string
+	var includeCookie bool
+	var confirmed bool
+
+	command := &cobra.Command{
+		Use:   "create-vtex-segment",
+		Short: "Create a VTEX segment token from a region ID and sales channel",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			application, err := bootstrap(appOptions(*options))
+			if err != nil {
+				return err
+			}
+
+			pipeline := execution.NewPipeline(application.Registry)
+			envelope, err := pipeline.Execute(cmd.Context(), execution.ExecuteRequest{
+				CapabilityID: catalog.CapabilityCreateVTEXSegmentID,
+				Input: capability.Input{
+					"brand":         brand,
+					"regionId":      regionID,
+					"salesChannel":  salesChannel,
+					"includeCookie": includeCookie,
+				},
+				Profile:       application.Config.Profile,
+				CorrelationID: options.correlationID,
+				Confirmed:     confirmed,
+			})
+			if err != nil {
+				return err
+			}
+
+			return writeExecutionEnvelope(cmd.OutOrStdout(), envelope)
+		},
+	}
+
+	command.Flags().StringVar(&brand, "brand", "exito", "VTEX brand account to query: exito or carulla")
+	command.Flags().StringVar(&regionID, "region-id", "", "VTEX region ID to place in the segment")
+	command.Flags().StringVar(&salesChannel, "sales-channel", "", "VTEX sales channel/trade policy to place in the segment")
+	command.Flags().BoolVar(&includeCookie, "include-cookie", false, "Include the vtex_segment cookie string in successful output")
+	command.Flags().BoolVar(&confirmed, "confirm", false, "Explicitly confirm VTEX segment creation")
+	_ = command.MarkFlagRequired("region-id")
+	_ = command.MarkFlagRequired("sales-channel")
 	return command
 }
 

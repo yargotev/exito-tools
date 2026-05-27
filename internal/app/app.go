@@ -46,6 +46,9 @@ func New(options Options) (*Application, error) {
 	if err := builder.RegisterExecutable(catalog.NewIntelligentSearchProductsCapability(catalogIntelligentSearcher(effectiveConfig))); err != nil {
 		return nil, err
 	}
+	if err := builder.RegisterExecutable(catalog.NewCreateVTEXSegmentCapability(catalogVTEXSegmentCreator(effectiveConfig))); err != nil {
+		return nil, err
+	}
 
 	return &Application{
 		Config:        effectiveConfig,
@@ -124,6 +127,20 @@ func catalogIntelligentBrandSearcher(provider config.VTEXCatalogBrandProvider) c
 		return catalog.UnavailableIntelligentSearcher{}
 	}
 	return catalog.NewHTTPIntelligentSearcher(catalog.HTTPIntelligentSearcherConfig{BaseURL: provider.BaseURL}, nil)
+}
+
+func catalogVTEXSegmentCreator(effectiveConfig config.Effective) catalog.VTEXSegmentCreator {
+	return catalog.NewVTEXSegmentBrandCreator(
+		catalogVTEXBrandSegmentCreator(effectiveConfig.VTEXCatalogProvider.Exito),
+		catalogVTEXBrandSegmentCreator(effectiveConfig.VTEXCatalogProvider.Carulla),
+	)
+}
+
+func catalogVTEXBrandSegmentCreator(provider config.VTEXCatalogBrandProvider) catalog.VTEXSegmentCreator {
+	if !provider.Configured {
+		return catalog.UnavailableVTEXSegmentCreator{}
+	}
+	return catalog.NewHTTPVTEXSegmentCreator(catalog.HTTPVTEXSegmentCreatorConfig{BaseURL: provider.BaseURL}, nil)
 }
 
 func geoVTEXRegionResolver(effectiveConfig config.Effective) geo.VTEXRegionResolver {

@@ -102,3 +102,85 @@ func (recordingIntelligentSearcher) IntelligentSearchProducts(_ context.Context,
 func boolPtr(value bool) *bool {
 	return &value
 }
+
+func TestCreateVTEXSegmentDefinitionRequiresConfirmation(t *testing.T) {
+	definition := CreateVTEXSegmentDefinition()
+	if definition.ID != CapabilityCreateVTEXSegmentID {
+		t.Fatalf("ID = %q, want %s", definition.ID, CapabilityCreateVTEXSegmentID)
+	}
+	if definition.Risk != "safe-write" || !definition.RequiresConfirmation {
+		t.Fatalf("definition risk/confirmation = %s/%v, want safe-write confirmation-required", definition.Risk, definition.RequiresConfirmation)
+	}
+}
+
+func TestCreateVTEXSegmentRejectsMissingInputs(t *testing.T) {
+	useCase := NewCreateVTEXSegmentUseCase(recordingSegmentCreator{})
+
+	_, err := useCase.Execute(context.Background(), CreateVTEXSegmentInput{RegionID: "REGION"})
+	if err == nil || !strings.Contains(err.Error(), "salesChannel is required") {
+		t.Fatalf("Execute() error = %v, want missing salesChannel error", err)
+	}
+}
+
+func TestHTTPVTEXSegmentCreatorPostsSessionAndRedactsToken(t *testing.T) {
+	var gotPath string
+	var gotMethod string
+	var gotPayload map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotMethod = r.Method
+		if err := json.NewDecoder(r.Body).Decode(&gotPayload); err != nil {
+			t.Fatalf("Decode request body error = %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"segmentToken":"secret-token","expiresIn":86400,"namespaces":{"segment":{"token":"nested-secret"}}}`))
+	}))
+	defer server.Close()
+
+	creator := NewHTTPVTEXSegmentCreator(HTTPVTEXSegmentCreatorConfig{BaseURL: server.URL}, server.Client())
+	result, err := creator.CreateVTEXSegment(context.Background(), CreateVTEXSegmentInput{
+		Brand:         "exito",
+		RegionID:      "REGION_ID",
+		SalesChannel:  "1",
+		IncludeCookie: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateVTEXSegment() error = %v", err)
+	}
+	if gotMethod != http.MethodPost || gotPath != "/io/api/sessions" {
+		t.Fatalf("request = %s %s, want POST /io/api/sessions", gotMethod, gotPath)
+	}
+	public, ok := gotPayload["public"].(map[string]any)
+	if !ok {
+		t.Fatalf("payload public = %#v", gotPayload["public"])
+	}
+	region, ok := public["regionId"].(map[string]any)
+	if !ok || region["value"] != "REGION_ID" {
+		t.Fatalf("payload regionId = %#v", public["regionId"])
+	}
+	sc, ok := public["sc"].(map[string]any)
+	if !ok || sc["value"] != "1" {
+		t.Fatalf("payload sc = %#v", public["sc"])
+	}
+	if !result.TokenSet || result.TokenLength != len("secret-token") || result.Cookie != "vtex_segment=secret-token" {
+		t.Fatalf("result token metadata = %#v", result)
+	}
+	encoded, err := json.Marshal(result.Diagnostics)
+	if err != nil {
+		t.Fatalf("Marshal diagnostics error = %v", err)
+	}
+	for _, leaked := range []string{"secret-token", "nested-secret"} {
+		if strings.Contains(string(encoded), leaked) {
+			t.Fatalf("diagnostics leaked token %q: %s", leaked, string(encoded))
+		}
+	}
+	if result.Diagnostics.ProviderPayload["segmentToken"] != redactedValue {
+		t.Fatalf("redacted segmentToken = %#v", result.Diagnostics.ProviderPayload["segmentToken"])
+	}
+}
+
+type recordingSegmentCreator struct{}
+
+func (recordingSegmentCreator) CreateVTEXSegment(_ context.Context, input CreateVTEXSegmentInput) (CreateVTEXSegmentResult, error) {
+	return CreateVTEXSegmentResult{Brand: input.Brand, RegionID: input.RegionID, SalesChannel: input.SalesChannel}, nil
+}

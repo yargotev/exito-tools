@@ -1064,6 +1064,97 @@ func TestCatalogIntelligentSearchProductsCommandRequiresTradePolicy(t *testing.T
 	}
 }
 
+func TestCatalogCreateVTEXSegmentCommandRequiresConfirmation(t *testing.T) {
+	handlerCalled := false
+	root := clisurface.NewRoot(func(options app.Options) (*app.Application, error) {
+		builder := registry.NewBuilder()
+		if err := builder.RegisterExecutable(capability.Executable{
+			Definition: catalog.CreateVTEXSegmentDefinition(),
+			Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
+				handlerCalled = true
+				return capability.ExecutionResult{Data: catalog.CreateVTEXSegmentResult{Brand: "exito", TokenSet: true}}, nil
+			},
+		}); err != nil {
+			t.Fatalf("RegisterExecutable() error = %v", err)
+		}
+		return &app.Application{Config: config.Effective{Profile: "staging"}, ConfigOptions: options.Config, Registry: builder.Finalize()}, nil
+	})
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stdout)
+	root.SetArgs([]string{"catalog", "create-vtex-segment", "--region-id", "REGION_ID", "--sales-channel", "1"})
+
+	assertFailureExitCode(t, root.Execute())
+
+	if handlerCalled {
+		t.Fatalf("handler was called without --confirm")
+	}
+	var got struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+		Meta struct {
+			CapabilityID string `json:"capabilityId"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("segment output is not JSON: %v\n%s", err, stdout.String())
+	}
+	if got.OK || got.Error.Code != "CONFIRMATION_REQUIRED" || got.Meta.CapabilityID != catalog.CapabilityCreateVTEXSegmentID {
+		t.Fatalf("output = %#v, want confirmation-required segment result", got)
+	}
+}
+
+func TestCatalogCreateVTEXSegmentCommandRunsCapabilityWhenConfirmed(t *testing.T) {
+	root := clisurface.NewRoot(func(options app.Options) (*app.Application, error) {
+		builder := registry.NewBuilder()
+		if err := builder.RegisterExecutable(capability.Executable{
+			Definition: catalog.CreateVTEXSegmentDefinition(),
+			Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
+				if request.Input["brand"] != "carulla" || request.Input["regionId"] != "REGION_ID" || request.Input["salesChannel"] != "1" || request.Input["includeCookie"] != true {
+					t.Fatalf("input = %#v, want segment flags", request.Input)
+				}
+				return capability.ExecutionResult{Data: catalog.CreateVTEXSegmentResult{Brand: "carulla", RegionID: "REGION_ID", SalesChannel: "1", TokenSet: true, TokenLength: 12}}, nil
+			},
+		}); err != nil {
+			t.Fatalf("RegisterExecutable() error = %v", err)
+		}
+		return &app.Application{Config: config.Effective{Profile: "staging"}, ConfigOptions: options.Config, Registry: builder.Finalize()}, nil
+	})
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stdout)
+	root.SetArgs([]string{"--correlation-id", "corr-seg", "catalog", "create-vtex-segment", "--brand", "carulla", "--region-id", "REGION_ID", "--sales-channel", "1", "--include-cookie", "--confirm"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	var got struct {
+		OK   bool `json:"ok"`
+		Data struct {
+			Brand        string `json:"brand"`
+			RegionID     string `json:"regionId"`
+			SalesChannel string `json:"salesChannel"`
+			TokenSet     bool   `json:"tokenSet"`
+		} `json:"data"`
+		Meta struct {
+			CorrelationID string `json:"correlationId"`
+			CapabilityID  string `json:"capabilityId"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("segment output is not JSON: %v\n%s", err, stdout.String())
+	}
+	if !got.OK || got.Data.Brand != "carulla" || got.Data.RegionID != "REGION_ID" || !got.Data.TokenSet {
+		t.Fatalf("output = %#v, want successful segment result", got)
+	}
+	if got.Meta.CorrelationID != "corr-seg" || got.Meta.CapabilityID != catalog.CapabilityCreateVTEXSegmentID {
+		t.Fatalf("metadata = %#v, want segment capability", got.Meta)
+	}
+}
+
 func TestCatalogSearchProductsCommandRunsCapability(t *testing.T) {
 	root := clisurface.NewRoot(func(options app.Options) (*app.Application, error) {
 		builder := registry.NewBuilder()
