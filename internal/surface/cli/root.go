@@ -226,6 +226,7 @@ func newOrdersCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Comma
 
 func newOrdersGetCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Command {
 	var orderID string
+	var orderType string
 
 	command := &cobra.Command{
 		Use:   "get",
@@ -239,8 +240,11 @@ func newOrdersGetCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Co
 
 			pipeline := execution.NewPipeline(application.Registry)
 			envelope, err := pipeline.Execute(cmd.Context(), execution.ExecuteRequest{
-				CapabilityID:  orders.CapabilityGetID,
-				Input:         capability.Input{"id": orderID},
+				CapabilityID: orders.CapabilityGetID,
+				Input: capability.Input{
+					"id":        orderID,
+					"orderType": orderType,
+				},
 				Profile:       application.Config.Profile,
 				CorrelationID: options.correlationID,
 			})
@@ -253,6 +257,7 @@ func newOrdersGetCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Co
 	}
 
 	command.Flags().StringVar(&orderID, "id", "", "Order identifier")
+	command.Flags().StringVar(&orderType, "order-type", "ExitoEcomm", "GEOMS order type filter, such as ExitoEcomm or CarullaEcomm")
 	_ = command.MarkFlagRequired("id")
 	return command
 }

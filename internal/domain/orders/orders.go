@@ -18,9 +18,22 @@ const (
 
 // Order is the domain-owned result model for an order lookup.
 type Order struct {
-	ID        string `json:"id"`
-	Status    string `json:"status"`
-	CreatedAt string `json:"createdAt"`
+	ID             string         `json:"id"`
+	Status         string         `json:"status"`
+	CreatedAt      string         `json:"createdAt"`
+	CustomerName   string         `json:"customerName,omitempty"`
+	Email          string         `json:"email,omitempty"`
+	OrderTotal     float64        `json:"orderTotal,omitempty"`
+	StatusOrderMax string         `json:"statusOrderMax,omitempty"`
+	StatusOrderMin string         `json:"statusOrderMin,omitempty"`
+	Items          *OrderItems    `json:"items,omitempty"`
+	Details        map[string]any `json:"details,omitempty"`
+}
+
+// OrderItems groups GEOMS line items by food and non-food buckets.
+type OrderItems struct {
+	Food    []map[string]any `json:"food"`
+	NotFood []map[string]any `json:"notFood"`
 }
 
 // GetResult is the stable use-case result shape for orders.get.
@@ -30,7 +43,8 @@ type GetResult struct {
 
 // GetInput is the schema-shaped input accepted by the orders.get use case.
 type GetInput struct {
-	ID string
+	ID        string
+	OrderType string
 }
 
 // Getter retrieves orders using domain-owned models.
@@ -71,7 +85,11 @@ func NewGetCapability(getter Getter) capability.Executable {
 	return capability.Executable{
 		Definition: Definition(),
 		Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
-			result, err := useCase.Execute(ctx, GetInput{ID: request.Input["id"].(string)})
+			input := GetInput{ID: request.Input["id"].(string)}
+			if orderType, ok := request.Input["orderType"].(string); ok {
+				input.OrderType = orderType
+			}
+			result, err := useCase.Execute(ctx, input)
 			if err != nil {
 				return capability.ExecutionResult{}, err
 			}
@@ -94,6 +112,7 @@ func Definition() capability.Definition {
 		Visibility:  []capability.Visibility{capability.VisibilityCLI, capability.VisibilityTUI, capability.VisibilityCommandPalette},
 		InputSchema: &capability.InputSchema{Fields: []capability.InputField{
 			{Name: "id", Type: capability.InputTypeString, Required: true, Description: "Order identifier."},
+			{Name: "orderType", Type: capability.InputTypeString, Required: false, Description: "GEOMS order type filter, such as ExitoEcomm or CarullaEcomm."},
 		}},
 	}
 }

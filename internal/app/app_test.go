@@ -146,14 +146,20 @@ func TestNewWiresConfiguredOrdersHTTPGetter(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotRequestID = r.Header.Get(httpclient.HeaderRequestID)
 		gotCorrelationID = r.Header.Get(httpclient.HeaderCorrelationID)
-		if r.URL.Path != "/orders/get" {
-			t.Fatalf("request path = %q, want /orders/get", r.URL.Path)
-		}
 		if r.Header.Get("Authorization") != "Bearer orders-token" {
 			t.Fatalf("Authorization = %q, want bearer token", r.Header.Get("Authorization"))
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"order":{"id":"A123","status":"created","createdAt":"2026-05-26T00:00:00Z"}}`))
+		switch r.URL.Path {
+		case "/findOrders":
+			_, _ = w.Write([]byte(`{"data":[{"orderNumber":"A123","statusOrderMax":"7500","createdDate":"2026-05-26T00:00:00Z"}]}`))
+		case "/getOrder":
+			_, _ = w.Write([]byte(`{"data":{"paymentInformation":{"orderTotal":10}}}`))
+		case "/findItemsByOrder":
+			_, _ = w.Write([]byte(`{"data":[]}`))
+		default:
+			http.NotFound(w, r)
+		}
 	}))
 	defer server.Close()
 
@@ -190,7 +196,7 @@ func TestNewWiresConfiguredOrdersHTTPGetter(t *testing.T) {
 	if !ok {
 		t.Fatalf("Data = %T, want orders.GetResult", *envelope.Data)
 	}
-	if got.Order.ID != "A123" || got.Order.Status != "created" {
+	if got.Order.ID != "A123" || got.Order.Status != "7500" {
 		t.Fatalf("result = %#v, want mapped provider order", got)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -18,8 +19,14 @@ const (
 	envGeoBaseURL = "EXITO_GEO_BASE_URL"
 	envGeoToken   = "EXITO_GEO_TOKEN" // #nosec G101 -- environment variable name, not a credential value.
 
-	envOrdersBaseURL = "EXITO_ORDERS_BASE_URL"
-	envOrdersToken   = "EXITO_ORDERS_TOKEN" // #nosec G101 -- environment variable name, not a credential value.
+	envOrdersBaseURL       = "EXITO_ORDERS_BASE_URL"
+	envOrdersToken         = "EXITO_ORDERS_TOKEN" // #nosec G101 -- environment variable name, not a credential value.
+	envOrdersClientID      = "EXITO_ORDERS_CLIENT_ID"
+	envOrdersClientSecret  = "EXITO_ORDERS_CLIENT_SECRET" // #nosec G101 -- environment variable name, not a credential value.
+	envOrdersScope         = "EXITO_ORDERS_SCOPE"
+	envOrdersTokenURL      = "EXITO_ORDERS_TOKEN_URL"
+	envGEOMSCredentialsQA  = "GEOMS_CREDENTIALS_QA"  // #nosec G101 -- environment variable name, not a credential value.
+	envGEOMSCredentialsPDN = "GEOMS_CREDENTIALS_PDN" // #nosec G101 -- environment variable name, not a credential value.
 )
 
 // Source identifies where a resolved value came from.
@@ -87,10 +94,24 @@ type OrdersProvider struct {
 	BaseURLSource Source `json:"baseUrlSource,omitempty"`
 
 	// Token is intentionally omitted from JSON so secrets are not exposed by
-	// accidental envelope/debug serialization of Effective configuration.
+	// accidental envelope/debug serialization of Effective configuration. A
+	// pre-fetched token is still supported for tests/manual fallback, but GEOMS
+	// normally uses client credentials and the Orders HTTP client obtains tokens.
 	Token       string `json:"-"`
 	TokenSource Source `json:"tokenSource,omitempty"`
 	TokenSet    bool   `json:"tokenSet"`
+
+	TokenURL       string `json:"tokenUrl,omitempty"`
+	TokenURLSource Source `json:"tokenUrlSource,omitempty"`
+	ClientID       string `json:"-"`
+	ClientIDSource Source `json:"clientIdSource,omitempty"`
+	ClientIDSet    bool   `json:"clientIdSet"`
+	ClientSecret   string `json:"-"`
+	SecretSource   Source `json:"secretSource,omitempty"`
+	SecretSet      bool   `json:"secretSet"`
+	Scope          string `json:"-"`
+	ScopeSource    Source `json:"scopeSource,omitempty"`
+	ScopeSet       bool   `json:"scopeSet"`
 
 	Configured bool `json:"configured"`
 }
@@ -133,7 +154,7 @@ func Resolve(options Options) (Effective, error) {
 	if err != nil {
 		return Effective{}, err
 	}
-	ordersProvider, err := resolveOrdersProvider(resolvedOptions.Env, credentialLayers, yamlProviders.OrdersBaseURL)
+	ordersProvider, err := resolveOrdersProvider(resolvedOptions.Env, credentialLayers, yamlProviders.OrdersBaseURL, profile)
 	if err != nil {
 		return Effective{}, err
 	}
@@ -220,13 +241,87 @@ func resolveGeoProvider(env map[string]string, layers []CredentialLayer, yamlBas
 	return GeoProvider(provider), nil
 }
 
-func resolveOrdersProvider(env map[string]string, layers []CredentialLayer, yamlBaseURL string) (OrdersProvider, error) {
+func resolveOrdersProvider(env map[string]string, layers []CredentialLayer, yamlBaseURL string, profile string) (OrdersProvider, error) {
 	provider, err := resolveProvider(env, layers, envOrdersBaseURL, envOrdersToken, yamlBaseURL)
 	if err != nil {
 		return OrdersProvider{}, err
 	}
 
-	return OrdersProvider(provider), nil
+	values := map[string]resolvedValue{}
+	for _, layer := range layers {
+		switch layer.Source {
+		case SourceEnvironment:
+			setLayerValue(values, envOrdersClientID, env[envOrdersClientID], SourceEnvironment)
+			setLayerValue(values, envOrdersClientSecret, env[envOrdersClientSecret], SourceEnvironment)
+			setLayerValue(values, envOrdersScope, env[envOrdersScope], SourceEnvironment)
+			setLayerValue(values, envOrdersTokenURL, env[envOrdersTokenURL], SourceEnvironment)
+			setOrdersCredentialsValue(values, env[geomsCredentialsKey(profile)], SourceEnvironment)
+		case SourceDotenv:
+			dotenv, err := readDotenvFile(layer.Path)
+			if err != nil {
+				return OrdersProvider{}, err
+			}
+			setLayerValue(values, envOrdersClientID, dotenv[envOrdersClientID], SourceDotenv)
+			setLayerValue(values, envOrdersClientSecret, dotenv[envOrdersClientSecret], SourceDotenv)
+			setLayerValue(values, envOrdersScope, dotenv[envOrdersScope], SourceDotenv)
+			setLayerValue(values, envOrdersTokenURL, dotenv[envOrdersTokenURL], SourceDotenv)
+			setOrdersCredentialsValue(values, dotenv[geomsCredentialsKey(profile)], SourceDotenv)
+		}
+	}
+
+	clientID := values[envOrdersClientID]
+	clientSecret := values[envOrdersClientSecret]
+	scope := values[envOrdersScope]
+	tokenURL := values[envOrdersTokenURL]
+	credentialsConfigured := clientID.Value != "" && clientSecret.Value != "" && scope.Value != ""
+
+	return OrdersProvider{
+		BaseURL:        provider.BaseURL,
+		BaseURLSource:  provider.BaseURLSource,
+		Token:          provider.Token,
+		TokenSource:    provider.TokenSource,
+		TokenSet:       provider.TokenSet,
+		TokenURL:       tokenURL.Value,
+		TokenURLSource: sourceOrDefault(tokenURL.Source),
+		ClientID:       clientID.Value,
+		ClientIDSource: sourceOrDefault(clientID.Source),
+		ClientIDSet:    clientID.Value != "",
+		ClientSecret:   clientSecret.Value,
+		SecretSource:   sourceOrDefault(clientSecret.Source),
+		SecretSet:      clientSecret.Value != "",
+		Scope:          scope.Value,
+		ScopeSource:    sourceOrDefault(scope.Source),
+		ScopeSet:       scope.Value != "",
+		Configured:     provider.BaseURL != "" && (provider.TokenSet || credentialsConfigured),
+	}, nil
+}
+
+func geomsCredentialsKey(profile string) string {
+	switch strings.ToLower(strings.TrimSpace(profile)) {
+	case "prod", "production", "pdn":
+		return envGEOMSCredentialsPDN
+	default:
+		return envGEOMSCredentialsQA
+	}
+}
+
+var credentialsPairPattern = regexp.MustCompile(`["']([^"']+)["']\s*:\s*["']([^"']*)["']`)
+
+func setOrdersCredentialsValue(values map[string]resolvedValue, raw string, source Source) {
+	credentials := parseCredentialsMap(raw)
+	setLayerValue(values, envOrdersClientID, credentials["client_id"], source)
+	setLayerValue(values, envOrdersClientSecret, credentials["client_secret"], source)
+	setLayerValue(values, envOrdersScope, credentials["scope"], source)
+}
+
+func parseCredentialsMap(raw string) map[string]string {
+	parsed := map[string]string{}
+	for _, match := range credentialsPairPattern.FindAllStringSubmatch(raw, -1) {
+		if len(match) == 3 {
+			parsed[strings.TrimSpace(match[1])] = strings.TrimSpace(match[2])
+		}
+	}
+	return parsed
 }
 
 type provider struct {

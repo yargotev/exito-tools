@@ -30,12 +30,16 @@ func TestDefinition(t *testing.T) {
 	if len(definition.Visibility) != 3 || definition.Visibility[0] != capability.VisibilityCLI || definition.Visibility[1] != capability.VisibilityTUI || definition.Visibility[2] != capability.VisibilityCommandPalette {
 		t.Fatalf("Visibility = %#v, want cli, tui, command-palette", definition.Visibility)
 	}
-	if definition.InputSchema == nil || len(definition.InputSchema.Fields) != 1 {
-		t.Fatalf("InputSchema = %#v, want one field", definition.InputSchema)
+	if definition.InputSchema == nil || len(definition.InputSchema.Fields) != 2 {
+		t.Fatalf("InputSchema = %#v, want id and optional orderType fields", definition.InputSchema)
 	}
 	field := definition.InputSchema.Fields[0]
 	if field.Name != "id" || field.Type != capability.InputTypeString || !field.Required {
 		t.Fatalf("Input field = %#v, want required string id", field)
+	}
+	orderTypeField := definition.InputSchema.Fields[1]
+	if orderTypeField.Name != "orderType" || orderTypeField.Type != capability.InputTypeString || orderTypeField.Required {
+		t.Fatalf("Input field = %#v, want optional string orderType", orderTypeField)
 	}
 }
 
@@ -45,7 +49,7 @@ func TestGetCapabilityExecutesUseCase(t *testing.T) {
 	getter := &fakeGetter{order: orders.Order{ID: "A123", Status: "created", CreatedAt: "2026-05-26T00:00:00Z"}}
 	envelope, err := pipelineWithOrdersGetter(t, getter).Execute(context.Background(), execution.ExecuteRequest{
 		CapabilityID: orders.CapabilityGetID,
-		Input:        capability.Input{"id": "A123"},
+		Input:        capability.Input{"id": "A123", "orderType": "CarullaEcomm"},
 		Profile:      "staging",
 	})
 	if err != nil {
@@ -55,8 +59,8 @@ func TestGetCapabilityExecutesUseCase(t *testing.T) {
 	if !envelope.OK {
 		t.Fatalf("OK = false, want true: %#v", envelope.Error)
 	}
-	if getter.got.ID != "A123" {
-		t.Fatalf("getter input ID = %q, want A123", getter.got.ID)
+	if getter.got.ID != "A123" || getter.got.OrderType != "CarullaEcomm" {
+		t.Fatalf("getter input = %#v, want A123 and CarullaEcomm", getter.got)
 	}
 	result, ok := (*envelope.Data).(orders.GetResult)
 	if !ok {

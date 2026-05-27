@@ -4,4 +4,7 @@ profiles:
     geo:
       baseUrl: https://sitidataws.sitimapa.co
     orders:
-      baseUrl: https://orders.example.test
+      baseUrl: https://bromoqa.grupo-exito.com/apioms/api/v1/TSYHCSNIDTKZJWM/geoms
+  prod:
+    orders:
+      baseUrl: https://bromo.grupo-exito.com/apioms/api/v1/IUYASVSFSBCJS/geoms

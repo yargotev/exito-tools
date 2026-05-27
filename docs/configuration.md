@@ -43,11 +43,19 @@ The resolver marks Geo as configured only when a Geo base URL and `EXITO_GEO_TOK
 ### Orders
 
 ```env
-EXITO_ORDERS_BASE_URL=https://orders.example.test
-EXITO_ORDERS_TOKEN=...
+# Non-sensitive endpoint can also live in YAML profiles.<profile>.orders.baseUrl.
+EXITO_ORDERS_BASE_URL=https://bromoqa.grupo-exito.com/apioms/api/v1/TSYHCSNIDTKZJWM/geoms
+
+# Preferred GEOMS client-credentials variables for non-committed env/dotenv files.
+EXITO_ORDERS_CLIENT_ID=...
+EXITO_ORDERS_CLIENT_SECRET=...
+EXITO_ORDERS_SCOPE=...
+
+# Optional override; defaults to the GEOMS Azure AD tenant token URL.
+EXITO_ORDERS_TOKEN_URL=https://login.microsoftonline.com/40f94963-1b34-45ce-a5fb-6f1fde2f1a27/oauth2/v2.0/token
 ```
 
-`EXITO_ORDERS_TOKEN` is sensitive and must only live in the real process environment or non-committed dotenv files.
+`EXITO_ORDERS_CLIENT_SECRET` and any GEOMS credential bundle are sensitive and must only live in the real process environment or non-committed dotenv files. The resolver also accepts the legacy GEOMS bundle variables `GEOMS_CREDENTIALS_QA` for non-prod profiles and `GEOMS_CREDENTIALS_PDN` for `prod`/`production`/`pdn` profiles, extracting `client_id`, `client_secret`, and `scope`.
 
 Orders provider values are resolved in this order:
 
@@ -56,4 +64,4 @@ Orders provider values are resolved in this order:
 3. General `.env` file.
 4. Selected YAML `profiles.<profile>.orders.baseUrl` for non-sensitive base URL only.
 
-The resolver marks Orders as configured only when an Orders base URL and `EXITO_ORDERS_TOKEN` are present. The token value is kept out of JSON serialization; only token presence/source metadata may be exposed.
+The resolver marks Orders as configured when an Orders base URL is present and either a pre-fetched `EXITO_ORDERS_TOKEN` or complete GEOMS client credentials are present. Secret values are kept out of JSON serialization; only presence/source metadata may be exposed.

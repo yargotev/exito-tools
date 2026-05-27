@@ -628,6 +628,28 @@ func TestResolveOrdersProviderConfiguration(t *testing.T) {
 		}
 	})
 
+	t.Run("geoms credentials configure client credentials", func(t *testing.T) {
+		t.Parallel()
+
+		resolved := resolveForTest(t, config.Options{
+			Profile: "staging",
+			Env: map[string]string{ // #nosec G101 -- test-only fake GEOMS credential bundle.
+				"EXITO_ORDERS_BASE_URL": "https://geoms.example.test/apioms/api/v1/scope/geoms",
+				"GEOMS_CREDENTIALS_QA":  `{ 'client_id': 'client-id', 'client_secret': 'secret-value', 'grant_type': 'client_credentials', 'scope': 'scope-value' }`,
+			},
+		})
+
+		if !resolved.OrdersProvider.Configured {
+			t.Fatalf("OrdersProvider.Configured = false, want true")
+		}
+		if resolved.OrdersProvider.ClientID != "client-id" || resolved.OrdersProvider.ClientSecret != "secret-value" || resolved.OrdersProvider.Scope != "scope-value" {
+			t.Fatalf("GEOMS credentials = (%q,%q,%q), want parsed values", resolved.OrdersProvider.ClientID, resolved.OrdersProvider.ClientSecret, resolved.OrdersProvider.Scope)
+		}
+		if !resolved.OrdersProvider.ClientIDSet || !resolved.OrdersProvider.SecretSet || !resolved.OrdersProvider.ScopeSet {
+			t.Fatalf("credential presence flags should be true: %#v", resolved.OrdersProvider)
+		}
+	})
+
 	t.Run("process environment wins over profile dotenv and general dotenv", func(t *testing.T) {
 		t.Parallel()
 

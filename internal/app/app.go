@@ -47,8 +47,12 @@ func ordersGetter(effectiveConfig config.Effective) orders.Getter {
 	}
 
 	return orders.NewHTTPGetter(orders.HTTPGetterConfig{
-		BaseURL: effectiveConfig.OrdersProvider.BaseURL,
-		Token:   effectiveConfig.OrdersProvider.Token,
+		BaseURL:      effectiveConfig.OrdersProvider.BaseURL,
+		Token:        effectiveConfig.OrdersProvider.Token,
+		TokenURL:     effectiveConfig.OrdersProvider.TokenURL,
+		ClientID:     effectiveConfig.OrdersProvider.ClientID,
+		ClientSecret: effectiveConfig.OrdersProvider.ClientSecret,
+		Scope:        effectiveConfig.OrdersProvider.Scope,
 	}, nil)
 }
 

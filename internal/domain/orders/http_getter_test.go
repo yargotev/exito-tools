@@ -16,29 +16,56 @@ import (
 func TestHTTPGetterPostsRequestAndMapsProviderResponse(t *testing.T) {
 	t.Parallel()
 
-	var gotPath string
+	var gotPaths []string
 	var gotAuth string
 	var gotRequestID string
 	var gotCorrelationID string
 	var gotBody struct {
-		ID string `json:"id"`
+		Filters struct {
+			OrderNumber string `json:"orderNumber"`
+			OrderType   string `json:"orderType"`
+		} `json:"filters"`
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path
+		gotPaths = append(gotPaths, r.URL.Path)
 		gotAuth = r.Header.Get("Authorization")
 		gotRequestID = r.Header.Get(httpclient.HeaderRequestID)
 		gotCorrelationID = r.Header.Get(httpclient.HeaderCorrelationID)
-		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
-			t.Fatalf("Decode(request body) error = %v", err)
-		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{
-			"order":{
-				"id":"A123",
-				"status":"created",
-				"createdAt":"2026-05-26T00:00:00Z"
+		switch r.URL.Path {
+		case "/findOrders":
+			if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+				t.Fatalf("Decode(request body) error = %v", err)
 			}
-		}`))
+			_, _ = w.Write([]byte(`{
+				"data":[{
+					"orderNumber":"A123",
+					"createdDate":"2026-05-26T00:00:00Z",
+					"customerName":"Customer One",
+					"email":"customer@example.test",
+					"orderTotal":980584,
+					"statusOrderMax":"7500",
+					"statusOrderMin":"7000"
+				}],
+				"total":1
+			}`))
+		case "/getOrder":
+			_, _ = w.Write([]byte(`{"data":{"infClient":{"email":"customer@example.test"},"paymentInformation":{"orderTotal":980584}}}`))
+		case "/findItemsByOrder":
+			var itemBody struct {
+				NotFood bool `json:"notFood"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&itemBody); err != nil {
+				t.Fatalf("Decode(item body) error = %v", err)
+			}
+			if itemBody.NotFood {
+				_, _ = w.Write([]byte(`{"data":[{"orderLineId":"1","itemId":"6450"}]}`))
+			} else {
+				_, _ = w.Write([]byte(`{"data":[]}`))
+			}
+		default:
+			http.NotFound(w, r)
+		}
 	}))
 	defer server.Close()
 
@@ -52,8 +79,8 @@ func TestHTTPGetterPostsRequestAndMapsProviderResponse(t *testing.T) {
 		t.Fatalf("Get() error = %v", err)
 	}
 
-	if gotPath != "/orders/get" {
-		t.Fatalf("request path = %q, want /orders/get", gotPath)
+	if len(gotPaths) != 4 || gotPaths[0] != "/findOrders" || gotPaths[1] != "/getOrder" || gotPaths[2] != "/findItemsByOrder" || gotPaths[3] != "/findItemsByOrder" {
+		t.Fatalf("request paths = %#v, want GEOMS summary, detail, and items calls", gotPaths)
 	}
 	if gotAuth != "Bearer token-123" {
 		t.Fatalf("Authorization = %q, want bearer token", gotAuth)
@@ -64,11 +91,66 @@ func TestHTTPGetterPostsRequestAndMapsProviderResponse(t *testing.T) {
 	if gotCorrelationID != "corr-orders" {
 		t.Fatalf("%s = %q, want corr-orders", httpclient.HeaderCorrelationID, gotCorrelationID)
 	}
-	if gotBody.ID != "A123" {
-		t.Fatalf("request body = %#v, want id A123", gotBody)
+	if gotBody.Filters.OrderNumber != "A123" || gotBody.Filters.OrderType != "ExitoEcomm" {
+		t.Fatalf("request body = %#v, want GEOMS order filter", gotBody)
 	}
-	if got.ID != "A123" || got.Status != "created" || got.CreatedAt != "2026-05-26T00:00:00Z" {
-		t.Fatalf("mapped order = %#v, want provider fields mapped", got)
+	if got.ID != "A123" || got.Status != "7500" || got.CreatedAt != "2026-05-26T00:00:00Z" || got.CustomerName != "Customer One" || got.Email != "customer@example.test" || got.OrderTotal != 980584 {
+		t.Fatalf("mapped order = %#v, want provider summary fields mapped", got)
+	}
+	if got.Details == nil || got.Items == nil || len(got.Items.NotFood) != 1 || len(got.Items.Food) != 0 {
+		t.Fatalf("enriched order = %#v, want details and grouped items", got)
+	}
+}
+
+func TestHTTPGetterFetchesGEOMSTokenAndReusesUntilExpiry(t *testing.T) {
+	t.Parallel()
+
+	var tokenRequests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/token":
+			tokenRequests++
+			if err := r.ParseForm(); err != nil {
+				t.Fatalf("ParseForm() error = %v", err)
+			}
+			if r.Form.Get("scope") != "api://scope-value/.default" || r.Form.Get("grant_type") != "client_credentials" {
+				t.Fatalf("token form = %#v, want Azure client credentials", r.Form)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"access_token":"dynamic-token","token_type":"Bearer","expires_in":3599}`))
+		case "/findOrders":
+			if got := r.Header.Get("Authorization"); got != "Bearer dynamic-token" {
+				t.Fatalf("Authorization = %q, want dynamic token", got)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[{"orderNumber":"A123","statusOrderMax":"7500","createdDate":"2026-05-26T00:00:00Z"}]}`))
+		case "/getOrder":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":{}}`))
+		case "/findItemsByOrder":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	getter := orders.NewHTTPGetter(orders.HTTPGetterConfig{
+		BaseURL:      server.URL,
+		TokenURL:     server.URL + "/token",
+		ClientID:     "client-id",
+		ClientSecret: "client-secret",
+		Scope:        "scope-value",
+	}, server.Client())
+
+	for range 2 {
+		if _, err := getter.Get(context.Background(), orders.GetInput{ID: "A123"}); err != nil {
+			t.Fatalf("Get() error = %v", err)
+		}
+	}
+	if tokenRequests != 1 {
+		t.Fatalf("token requests = %d, want cached single request", tokenRequests)
 	}
 }
 
