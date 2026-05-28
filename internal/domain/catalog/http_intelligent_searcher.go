@@ -59,7 +59,7 @@ func (s HTTPIntelligentSearcher) IntelligentSearchProducts(ctx context.Context, 
 	}
 	defer func() { _ = response.Body.Close() }()
 
-	if !httpclient.Successful(response) {
+	if !successfulIntelligentSearchResponse(response) {
 		return IntelligentSearchProductsResult{}, capability.StructuredError{Code: ErrorCatalogProviderUnavailable, Message: "VTEX Intelligent Search provider returned an unsuccessful response."}
 	}
 
@@ -97,6 +97,13 @@ func (s HTTPIntelligentSearcher) IntelligentSearchProducts(ctx context.Context, 
 			ProviderProducts: productsPayload,
 		},
 	}, nil
+}
+
+func successfulIntelligentSearchResponse(response *http.Response) bool {
+	if httpclient.Successful(response) {
+		return true
+	}
+	return response != nil && response.StatusCode == http.StatusNotAcceptable && strings.Contains(strings.ToLower(response.Header.Get("Content-Type")), "application/json")
 }
 
 func intelligentPathAndQuery(input IntelligentSearchProductsInput) (string, url.Values, []Facet, error) {

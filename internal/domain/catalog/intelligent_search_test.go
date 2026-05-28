@@ -93,6 +93,30 @@ func TestHTTPIntelligentSearcherBuildsRequestAndRedactsCookies(t *testing.T) {
 	}
 }
 
+func TestHTTPIntelligentSearcherAcceptsVTEXJSONNotAcceptableResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusNotAcceptable)
+		_, _ = w.Write([]byte(`{"products":[{"productId":"3245391","productName":"Arroz","items":[{"itemId":"3822261","sellers":[{"sellerId":"1","commertialOffer":{"Price":36900,"ListPrice":46100,"AvailableQuantity":10000}}]}]}],"recordsFiltered":1}`))
+	}))
+	defer server.Close()
+
+	searcher := NewHTTPIntelligentSearcher(HTTPIntelligentSearcherConfig{BaseURL: server.URL}, server.Client())
+	result, err := searcher.IntelligentSearchProducts(context.Background(), IntelligentSearchProductsInput{
+		Brand:       "exito",
+		TradePolicy: "1",
+		Text:        "arroz",
+		Page:        1,
+		Count:       1,
+	})
+	if err != nil {
+		t.Fatalf("IntelligentSearchProducts() error = %v", err)
+	}
+	if len(result.Products) != 1 || result.Products[0].ProductID != "3245391" || result.Products[0].Items[0].Sellers[0].Price != 36900 {
+		t.Fatalf("result = %#v, want parsed VTEX 406 JSON payload", result)
+	}
+}
+
 type recordingIntelligentSearcher struct{}
 
 func (recordingIntelligentSearcher) IntelligentSearchProducts(_ context.Context, input IntelligentSearchProductsInput) (IntelligentSearchProductsResult, error) {
@@ -176,6 +200,38 @@ func TestHTTPVTEXSegmentCreatorPostsSessionAndRedactsToken(t *testing.T) {
 	}
 	if result.Diagnostics.ProviderPayload["segmentToken"] != redactedValue {
 		t.Fatalf("redacted segmentToken = %#v", result.Diagnostics.ProviderPayload["segmentToken"])
+	}
+}
+
+func TestHTTPVTEXSegmentCreatorFallsBackToAPISessions(t *testing.T) {
+	var gotPaths []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPaths = append(gotPaths, r.URL.Path)
+		if r.URL.Path == "/io/api/sessions" {
+			http.Error(w, "portal error", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"segmentToken":"fallback-token"}`))
+	}))
+	defer server.Close()
+
+	creator := NewHTTPVTEXSegmentCreator(HTTPVTEXSegmentCreatorConfig{BaseURL: server.URL}, server.Client())
+	result, err := creator.CreateVTEXSegment(context.Background(), CreateVTEXSegmentInput{
+		Brand:         "exito",
+		RegionID:      "REGION_ID",
+		SalesChannel:  "1",
+		IncludeCookie: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateVTEXSegment() error = %v", err)
+	}
+	if len(gotPaths) != 2 || gotPaths[0] != "/io/api/sessions" || gotPaths[1] != "/api/sessions" {
+		t.Fatalf("paths = %#v, want /io then /api fallback", gotPaths)
+	}
+	if !result.TokenSet || result.Cookie != "vtex_segment=fallback-token" || result.Diagnostics.RequestPath != "/api/sessions" {
+		t.Fatalf("result = %#v, want fallback token and path", result)
 	}
 }
 

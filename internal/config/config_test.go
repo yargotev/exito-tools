@@ -1014,12 +1014,12 @@ profiles:
 		resolved := resolveForTest(t, config.Options{
 			Profile: "prod",
 			Env: map[string]string{
-				"CARULLA_VTEX_INTELLIGENT_SEARCH_BASE_URL_PROD": "https://www.carulla.com",
+				"CARULLA_VTEX_INTELLIGENT_SEARCH_BASE_URL_PROD": "https://carulla.vtexcommercestable.com.br",
 			},
 		})
 		provider := resolved.VTEXIntelligentSearchProvider.Carulla
-		if !provider.Configured || provider.BaseURL != "https://www.carulla.com" || provider.BaseURLSource != config.SourceEnvironment {
-			t.Fatalf("Carulla VTEX Intelligent Search provider = %#v, want configured prod environment value", provider)
+		if !provider.Configured || provider.BaseURL != "https://carulla.vtexcommercestable.com.br" || provider.BaseURLSource != config.SourceEnvironment {
+			t.Fatalf("Carulla VTEX Intelligent Search provider = %#v, want configured prod account/environment value", provider)
 		}
 	})
 }

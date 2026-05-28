@@ -14,6 +14,7 @@ import (
 
 const (
 	vtexSessionsPath               = "/io/api/sessions"
+	vtexSessionsFallbackPath       = "/api/sessions"
 	maxVTEXSegmentResponseBodySize = 4 << 20
 	redactedValue                  = "[REDACTED]"
 )
@@ -48,25 +49,33 @@ func (c HTTPVTEXSegmentCreator) CreateVTEXSegment(ctx context.Context, input Cre
 	if err != nil {
 		return CreateVTEXSegmentResult{}, capability.StructuredError{Code: ErrorCatalogInvalidInput, Message: "VTEX segment request payload is invalid."}
 	}
-	request, err := c.client.NewRequest(ctx, http.MethodPost, vtexSessionsPath, bytes.NewReader(body))
-	if err != nil {
-		return CreateVTEXSegmentResult{}, capability.StructuredError{Code: ErrorCatalogNotConfigured, Message: "VTEX Sessions provider base URL is invalid."}
-	}
-	request.Header.Set("Content-Type", "application/json")
-
-	response, err := c.client.Do(request)
-	if err != nil {
-		return CreateVTEXSegmentResult{}, capability.StructuredError{Code: ErrorCatalogProviderUnavailable, Message: "VTEX Sessions provider request failed."}
-	}
-	defer func() { _ = response.Body.Close() }()
-
 	var providerResponse map[string]any
-	limited := io.LimitReader(response.Body, maxVTEXSegmentResponseBodySize)
-	if err := json.NewDecoder(limited).Decode(&providerResponse); err != nil {
-		return CreateVTEXSegmentResult{}, capability.StructuredError{Code: ErrorCatalogProviderInvalidResponse, Message: "VTEX Sessions provider returned an invalid response."}
-	}
+	var requestPath string
+	for _, path := range []string{vtexSessionsPath, vtexSessionsFallbackPath} {
+		request, err := c.client.NewRequest(ctx, http.MethodPost, path, bytes.NewReader(body))
+		if err != nil {
+			return CreateVTEXSegmentResult{}, capability.StructuredError{Code: ErrorCatalogNotConfigured, Message: "VTEX Sessions provider base URL is invalid."}
+		}
+		request.Header.Set("Content-Type", "application/json")
 
-	if !httpclient.Successful(response) {
+		response, err := c.client.Do(request)
+		if err != nil {
+			return CreateVTEXSegmentResult{}, capability.StructuredError{Code: ErrorCatalogProviderUnavailable, Message: "VTEX Sessions provider request failed."}
+		}
+
+		limited := io.LimitReader(response.Body, maxVTEXSegmentResponseBodySize)
+		content, readErr := io.ReadAll(limited)
+		_ = response.Body.Close()
+		if !httpclient.Successful(response) {
+			continue
+		}
+		if readErr != nil || json.Unmarshal(content, &providerResponse) != nil {
+			return CreateVTEXSegmentResult{}, capability.StructuredError{Code: ErrorCatalogProviderInvalidResponse, Message: "VTEX Sessions provider returned an invalid response."}
+		}
+		requestPath = path
+		break
+	}
+	if providerResponse == nil {
 		return CreateVTEXSegmentResult{}, capability.StructuredError{Code: ErrorCatalogProviderUnavailable, Message: "VTEX Sessions provider returned an unsuccessful response."}
 	}
 
@@ -78,7 +87,7 @@ func (c HTTPVTEXSegmentCreator) CreateVTEXSegment(ctx context.Context, input Cre
 		TokenSet:     token != "",
 		TokenLength:  len(token),
 		Diagnostics: SegmentDiagnostics{
-			RequestPath:     vtexSessionsPath,
+			RequestPath:     requestPath,
 			RequestPayload:  payload,
 			ProviderPayload: redactSegmentProviderPayload(providerResponse),
 		},

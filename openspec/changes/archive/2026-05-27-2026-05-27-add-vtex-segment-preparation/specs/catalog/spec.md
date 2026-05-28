@@ -10,7 +10,7 @@ Exito Tools MUST expose a confirmation-required `catalog.create-vtex-segment` ca
 
 - **Given** VTEX public sessions is configured for the requested brand
 - **When** a caller executes `catalog.create-vtex-segment` with `regionId` set to `REGION_ID` and `salesChannel` set to `1`
-- **Then** the capability MUST call `POST /io/api/sessions`
+- **Then** the capability MUST call VTEX Sessions, preferring `POST /io/api/sessions` and falling back to `POST /api/sessions` when storefront routing requires it
 - **And** the request body MUST include `public.regionId.value` equal to `REGION_ID`
 - **And** the request body MUST include `public.sc.value` equal to `1`
 - **And** the result MUST include safe token metadata that indicates whether a segment token was returned.

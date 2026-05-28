@@ -35,6 +35,6 @@ profiles:
         baseUrl: https://www.carulla.com
     vtexIntelligentSearch:
       exito:
-        baseUrl: https://www.exito.com
+        baseUrl: https://exitocol.vtexcommercestable.com.br
       carulla:
-        baseUrl: https://www.carulla.com
+        baseUrl: https://carulla.vtexcommercestable.com.br

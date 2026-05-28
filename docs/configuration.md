@@ -116,9 +116,9 @@ VTEX Catalog product search uses public storefront Search API endpoints and does
 ```env
 # Public Intelligent Search endpoints can also live in YAML profiles.<profile>.vtexIntelligentSearch.<brand>.baseUrl.
 EXITO_VTEX_INTELLIGENT_SEARCH_BASE_URL_QA=https://exito.vtexcommercestable.com.br
-EXITO_VTEX_INTELLIGENT_SEARCH_BASE_URL_PROD=https://www.exito.com
+EXITO_VTEX_INTELLIGENT_SEARCH_BASE_URL_PROD=https://exitocol.vtexcommercestable.com.br
 CARULLA_VTEX_INTELLIGENT_SEARCH_BASE_URL_QA=https://carulla.vtexcommercestable.com.br
-CARULLA_VTEX_INTELLIGENT_SEARCH_BASE_URL_PROD=https://www.carulla.com
+CARULLA_VTEX_INTELLIGENT_SEARCH_BASE_URL_PROD=https://carulla.vtexcommercestable.com.br
 ```
 
-VTEX Intelligent Search product search uses the public storefront/search-engine REST API and does not require VTEX app credentials for the first read-only slice. Caller-supplied `vtex_segment` or `vtex_session` cookies are execution inputs only; do not store them in committed YAML or documentation examples with real values.
+VTEX Intelligent Search product search uses the public storefront/search-engine REST API and does not require VTEX app credentials for the first read-only slice. Prefer VTEX account/environment hosts such as `{accountName}.vtexcommercestable.com.br` or `{accountName}.myvtex.com` for provider diagnostics; custom storefront domains may route differently and are not the default for Exito Tools Intelligent Search. Caller-supplied `vtex_segment` or `vtex_session` cookies are execution inputs only; do not store them in committed YAML or documentation examples with real values.
