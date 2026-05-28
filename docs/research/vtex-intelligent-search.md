@@ -1,6 +1,6 @@
 # VTEX Intelligent Search research for future CLI implementation
 
-_Last researched: 2026-05-27_
+_Last researched: 2026-05-28_
 
 ## Purpose
 
@@ -19,10 +19,12 @@ For a future CLI, model Intelligent Search as a **new Catalog read-only capabili
 
 Base servers from the OpenAPI schema:
 
-- `https://{accountName}.vtexcommercestable.com.br/api/io/_v/api/intelligent-search`
-- `https://{storeDomain}/api/io/_v/api/intelligent-search`
-- `https://{accountName}.myvtex.com/api/io/_v/api/intelligent-search`
-- Pickup-point availability uses `https://{accountName}.vtexcommercestable.com.br/api/intelligent-search/v0`
+- `https://{accountName}.{environment}.com.br/api/io/_v/api/intelligent-search`, with `environment=vtexcommercestable` for the stable VTEX environment.
+- `https://{accountName}.myvtex.com/api/io/_v/api/intelligent-search`.
+- `https://{storeDomain}/api/io/_v/api/intelligent-search` is documented, but Exito Tools should not use custom storefront domains as Intelligent Search defaults because CDN/storefront routing can differ from account/environment API hosts.
+- Pickup-point availability uses `https://{accountName}.vtexcommercestable.com.br/api/intelligent-search/v0`.
+
+See `docs/research/vtex-intelligent-search-api-reference.md` for the local summarized API reference.
 
 | Endpoint | Purpose | CLI candidate |
 | --- | --- | --- |
@@ -568,3 +570,33 @@ Investigate/implement only after Phase 1/2 validation:
 - Cities/dependencies/address GraphQL if CLI must guide store/pickup selection.
 
 Keep this as separate capability/workflow work because it introduces storefront-specific contracts beyond VTEX Intelligent Search REST.
+
+## Live regionalization validation notes
+
+The Phase 4 workflow was validated against `prod`/exitocol with the confirmation-required command:
+
+```bash
+exito --profile prod catalog intelligent-search regionalized-products \
+  --brand exito \
+  --country COL \
+  --trade-policy 1 \
+  --longitude <longitude> \
+  --latitude <latitude> \
+  --text <query> \
+  --confirm
+```
+
+Known coordinates for repeatable tests:
+
+| Place | Address | Latitude | Longitude | Prod region observed |
+| --- | --- | ---: | ---: | --- |
+| Poblado | Cra. 42 #10-58, El Poblado, Medellín, Antioquia | `6.2107605` | `-75.569325` | `U1cjZXhpdG9jb2wwMzM=` |
+| Bello | Av. 32 #55-137, Hermosa Provincia, Bello, Antioquia | `6.34160679` | `-75.54018773` | `U1cjZXhpdG9jb2wwMzA=` |
+
+Validation findings:
+
+- `agua` confirmed that Poblado and Bello resolve to different prod regions, but common water SKUs kept the same selling prices in the sampled results. Ranking and top-result composition changed by region.
+- `tomate` confirmed regional price differences. SKU `506130` (`Tomate Chonto Insuperable FRESCAMPO 1000 gr`) returned `$3.800` in Poblado and `$4.240` in Bello. SKU `1601910` (`Tomate Milano 1 und`) had no Poblado price in the sampled SKU lookup and returned `$2.580` in Bello.
+- Some tomato SKUs kept the same selling price while list price changed by region: `124214809`, `124233565`, and `639051` had higher list prices in Bello.
+- SKU-specific lookup with `--by sku-id --value <sku>` is the preferred validation method when confirming regional price changes, because text search ranking can differ by region and obscure like-for-like comparisons.
+- Staging/QA is useful for integration behavior, but Bello returned `hasCoverage=false` with fallback region `U1cj` and anomalous QA prices in the sampled run. Use prod/exitocol for this Poblado-vs-Bello price comparison unless QA coverage data is corrected.

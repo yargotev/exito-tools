@@ -17,7 +17,7 @@ Exito Tools MUST expose a read-only `geo.resolve-vtex-region` capability for VTE
 - **Then** the capability MUST call `GET /api/checkout/pub/regions`
 - **And** the request query MUST include `country={country}` and `sc={salesChannel}`
 - **And** the request query MUST include `geoCoordinates={longitude};{latitude}` preserving longitude before latitude
-- **And** the result MUST include returned sellers and region diagnostics.
+- **And** the result MUST include returned sellers, resolved region IDs when present, and region diagnostics.
 
 #### Scenario: Coverage is true when any seller is present
 
