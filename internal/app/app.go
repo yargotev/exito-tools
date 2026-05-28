@@ -6,6 +6,7 @@ import (
 	"github.com/yargotev/exito-tools/internal/domain/geo"
 	"github.com/yargotev/exito-tools/internal/domain/orders"
 	"github.com/yargotev/exito-tools/internal/registry"
+	"github.com/yargotev/exito-tools/internal/workflow"
 )
 
 // Options contains application boot inputs shared by all surfaces.
@@ -47,6 +48,13 @@ func New(options Options) (*Application, error) {
 		return nil, err
 	}
 	if err := builder.RegisterExecutable(catalog.NewCreateVTEXSegmentCapability(catalogVTEXSegmentCreator(effectiveConfig))); err != nil {
+		return nil, err
+	}
+	if err := builder.RegisterExecutable(workflow.NewRegionalizedIntelligentSearchProductsCapability(
+		geoVTEXRegionResolver(effectiveConfig),
+		catalogVTEXSegmentCreator(effectiveConfig),
+		catalogIntelligentSearcher(effectiveConfig),
+	)); err != nil {
 		return nil, err
 	}
 

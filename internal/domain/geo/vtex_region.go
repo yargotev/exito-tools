@@ -35,6 +35,13 @@ type RegionSeller struct {
 	Raw  map[string]any `json:"raw,omitempty"`
 }
 
+// Region describes a VTEX checkout region returned for coordinates.
+type Region struct {
+	ID      string         `json:"id"`
+	Sellers []RegionSeller `json:"sellers,omitempty"`
+	Raw     map[string]any `json:"raw,omitempty"`
+}
+
 // RegionDiagnostics captures non-secret request and provider details.
 type RegionDiagnostics struct {
 	RequestPath     string            `json:"requestPath,omitempty"`
@@ -49,6 +56,7 @@ type ResolveVTEXRegionResult struct {
 	SalesChannel string            `json:"salesChannel"`
 	Coordinates  Coordinates       `json:"coordinates"`
 	HasCoverage  bool              `json:"hasCoverage"`
+	Regions      []Region          `json:"regions,omitempty"`
 	Sellers      []RegionSeller    `json:"sellers"`
 	Diagnostics  RegionDiagnostics `json:"diagnostics,omitempty"`
 }

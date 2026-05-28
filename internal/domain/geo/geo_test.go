@@ -201,6 +201,9 @@ func TestHTTPVTEXRegionResolverBuildsCoordinatesAndCoverage(t *testing.T) {
 	if !result.HasCoverage || len(result.Sellers) != 2 || result.Sellers[1].ID != "seller-2" {
 		t.Fatalf("result = %#v, want coverage from non-account seller", result)
 	}
+	if len(result.Regions) != 1 || result.Regions[0].ID != "REGION-1" || len(result.Regions[0].Sellers) != 2 {
+		t.Fatalf("regions = %#v, want resolved region with sellers", result.Regions)
+	}
 	if result.Diagnostics.RequestQuery["geoCoordinates"] != "-74.160580822;4.598090587" {
 		t.Fatalf("diagnostic query = %#v", result.Diagnostics.RequestQuery)
 	}

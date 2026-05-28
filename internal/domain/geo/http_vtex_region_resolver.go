@@ -70,6 +70,7 @@ func (r HTTPVTEXRegionResolver) ResolveVTEXRegion(ctx context.Context, input Res
 		return ResolveVTEXRegionResult{}, capability.StructuredError{Code: ErrorGeoProviderInvalidResponse, Message: "VTEX region provider returned an invalid response."}
 	}
 
+	regions := regionsFromPayload(providerPayload)
 	sellers := sellersFromRegionPayload(providerPayload)
 	requestQuery := map[string]string{}
 	for key, values := range query {
@@ -83,6 +84,7 @@ func (r HTTPVTEXRegionResolver) ResolveVTEXRegion(ctx context.Context, input Res
 		SalesChannel: strings.TrimSpace(input.SalesChannel),
 		Coordinates:  Coordinates{Longitude: strings.TrimSpace(input.Longitude), Latitude: strings.TrimSpace(input.Latitude)},
 		HasCoverage:  hasCoverage(sellers),
+		Regions:      regions,
 		Sellers:      sellers,
 		Diagnostics: RegionDiagnostics{
 			RequestPath:     path,
@@ -90,6 +92,30 @@ func (r HTTPVTEXRegionResolver) ResolveVTEXRegion(ctx context.Context, input Res
 			ProviderPayload: providerPayload,
 		},
 	}, nil
+}
+
+func regionsFromPayload(payload any) []Region {
+	values, ok := payload.([]any)
+	if !ok {
+		return nil
+	}
+	regions := make([]Region, 0, len(values))
+	for _, value := range values {
+		fields, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+		id := firstString(fields, "id", "regionId")
+		if strings.TrimSpace(id) == "" {
+			continue
+		}
+		regions = append(regions, Region{
+			ID:      id,
+			Sellers: sellersFromAny(fields["sellers"]),
+			Raw:     fields,
+		})
+	}
+	return regions
 }
 
 func sellersFromRegionPayload(payload any) []RegionSeller {

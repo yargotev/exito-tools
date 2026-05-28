@@ -14,6 +14,7 @@ import (
 	"github.com/yargotev/exito-tools/internal/domain/orders"
 	"github.com/yargotev/exito-tools/internal/execution"
 	"github.com/yargotev/exito-tools/internal/platform/httpclient"
+	"github.com/yargotev/exito-tools/internal/workflow"
 )
 
 func TestNewResolvesConfigurationAtBoot(t *testing.T) {
@@ -71,6 +72,7 @@ func TestNewWiresBootCapabilities(t *testing.T) {
 		{id: "catalog.search-products", domain: "catalog"},
 		{id: "catalog.intelligent-search-products", domain: "catalog"},
 		{id: "catalog.create-vtex-segment", domain: "catalog"},
+		{id: workflow.CapabilityRegionalizedIntelligentSearchProductsID, domain: "catalog"},
 	}
 
 	for _, tt := range tests {

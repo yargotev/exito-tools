@@ -17,6 +17,7 @@ import (
 	"github.com/yargotev/exito-tools/internal/domain/orders"
 	"github.com/yargotev/exito-tools/internal/registry"
 	clisurface "github.com/yargotev/exito-tools/internal/surface/cli"
+	"github.com/yargotev/exito-tools/internal/workflow"
 )
 
 func TestRootHelpPaths(t *testing.T) {
@@ -1294,5 +1295,99 @@ func TestGeoResolveVTEXRegionCommandRequiresCoordinatesAndSalesChannel(t *testin
 	}
 	if strings.Contains(output.String(), "{\"ok\"") {
 		t.Fatalf("missing flag error should not emit JSON envelope\n%s", output.String())
+	}
+}
+
+func TestCatalogIntelligentSearchRegionalizedProductsCommandRequiresConfirmation(t *testing.T) {
+	handlerCalled := false
+	root := clisurface.NewRoot(func(options app.Options) (*app.Application, error) {
+		builder := registry.NewBuilder()
+		if err := builder.RegisterExecutable(capability.Executable{
+			Definition: workflow.RegionalizedIntelligentSearchProductsDefinition(),
+			Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
+				handlerCalled = true
+				return capability.ExecutionResult{Data: workflow.RegionalizedIntelligentSearchProductsResult{Brand: "exito"}}, nil
+			},
+		}); err != nil {
+			t.Fatalf("RegisterExecutable() error = %v", err)
+		}
+		return &app.Application{Config: config.Effective{Profile: "staging"}, ConfigOptions: options.Config, Registry: builder.Finalize()}, nil
+	})
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stdout)
+	root.SetArgs([]string{"catalog", "intelligent-search", "regionalized-products", "--trade-policy", "1", "--longitude", "-74", "--latitude", "4", "--text", "arroz"})
+
+	assertFailureExitCode(t, root.Execute())
+
+	if handlerCalled {
+		t.Fatalf("handler was called without --confirm")
+	}
+	var got struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+		Meta struct {
+			CapabilityID string `json:"capabilityId"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("regionalized output is not JSON: %v\n%s", err, stdout.String())
+	}
+	if got.OK || got.Error.Code != "CONFIRMATION_REQUIRED" || got.Meta.CapabilityID != workflow.CapabilityRegionalizedIntelligentSearchProductsID {
+		t.Fatalf("output = %#v, want confirmation-required workflow result", got)
+	}
+}
+
+func TestCatalogIntelligentSearchRegionalizedProductsCommandRunsCapabilityWhenConfirmed(t *testing.T) {
+	root := clisurface.NewRoot(func(options app.Options) (*app.Application, error) {
+		builder := registry.NewBuilder()
+		if err := builder.RegisterExecutable(capability.Executable{
+			Definition: workflow.RegionalizedIntelligentSearchProductsDefinition(),
+			Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
+				if request.Input["brand"] != "carulla" || request.Input["country"] != "COL" || request.Input["tradePolicy"] != "1" || request.Input["longitude"] != "-74" || request.Input["latitude"] != "4" || request.Input["text"] != "arroz" {
+					t.Fatalf("input = %#v, want regionalized flags", request.Input)
+				}
+				if request.Input["hideUnavailable"] != true || request.Input["simulationBehavior"] != "skip" {
+					t.Fatalf("availability input = %#v", request.Input)
+				}
+				return capability.ExecutionResult{Data: workflow.RegionalizedIntelligentSearchProductsResult{Brand: "carulla", Region: workflow.SelectedRegion{ID: "REGION-1"}, Segment: workflow.SegmentSummary{TokenSet: true}}}, nil
+			},
+		}); err != nil {
+			t.Fatalf("RegisterExecutable() error = %v", err)
+		}
+		return &app.Application{Config: config.Effective{Profile: "staging"}, ConfigOptions: options.Config, Registry: builder.Finalize()}, nil
+	})
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stdout)
+	root.SetArgs([]string{"--correlation-id", "corr-reg-search", "catalog", "intelligent-search", "regionalized-products", "--brand", "carulla", "--country", "COL", "--trade-policy", "1", "--longitude", "-74", "--latitude", "4", "--text", "arroz", "--hide-unavailable", "--simulation-behavior", "skip", "--confirm"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	var got struct {
+		OK   bool `json:"ok"`
+		Data struct {
+			Brand  string `json:"brand"`
+			Region struct {
+				ID string `json:"id"`
+			} `json:"region"`
+		} `json:"data"`
+		Meta struct {
+			CorrelationID string `json:"correlationId"`
+			CapabilityID  string `json:"capabilityId"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("regionalized output is not JSON: %v\n%s", err, stdout.String())
+	}
+	if !got.OK || got.Data.Brand != "carulla" || got.Data.Region.ID != "REGION-1" {
+		t.Fatalf("output = %#v, want successful regionalized result", got)
+	}
+	if got.Meta.CorrelationID != "corr-reg-search" || got.Meta.CapabilityID != workflow.CapabilityRegionalizedIntelligentSearchProductsID {
+		t.Fatalf("metadata = %#v, want workflow capability", got.Meta)
 	}
 }

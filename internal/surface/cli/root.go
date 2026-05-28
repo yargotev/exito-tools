@@ -17,6 +17,7 @@ import (
 	"github.com/yargotev/exito-tools/internal/execution"
 	"github.com/yargotev/exito-tools/internal/presenter"
 	tuisurface "github.com/yargotev/exito-tools/internal/surface/tui"
+	"github.com/yargotev/exito-tools/internal/workflow"
 )
 
 // Bootstrapper builds the application after Cobra has parsed CLI boot flags.
@@ -301,6 +302,7 @@ func newCatalogIntelligentSearchCommand(bootstrap Bootstrapper, options *rootOpt
 		Short: "Run VTEX Intelligent Search commands",
 	}
 	command.AddCommand(newCatalogIntelligentSearchProductsCommand(bootstrap, options))
+	command.AddCommand(newCatalogIntelligentSearchRegionalizedProductsCommand(bootstrap, options))
 	return command
 }
 
@@ -399,6 +401,117 @@ func newCatalogIntelligentSearchProductsCommand(bootstrap Bootstrapper, options 
 	command.Flags().StringVar(&simulationBehavior, "simulation-behavior", "", "Simulation behavior: default, skip, or only1P")
 	command.Flags().StringArrayVar(&cookies, "cookie", nil, "VTEX cookie string for advanced diagnostics; values are redacted from output")
 	_ = command.MarkFlagRequired("trade-policy")
+	command.MarkFlagsMutuallyExclusive("hide-unavailable", "include-unavailable")
+	command.MarkFlagsMutuallyExclusive("text", "query")
+	command.MarkFlagsMutuallyExclusive("text", "by")
+	command.MarkFlagsMutuallyExclusive("query", "by")
+	return command
+}
+
+func newCatalogIntelligentSearchRegionalizedProductsCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Command {
+	var brand string
+	var country string
+	var tradePolicy string
+	var longitude string
+	var latitude string
+	var text string
+	var by string
+	var values []string
+	var query string
+	var facets []string
+	var page int
+	var count int
+	var sort string
+	var locale string
+	var hideUnavailable bool
+	var includeUnavailable bool
+	var simulationBehavior string
+	var confirmed bool
+
+	command := &cobra.Command{
+		Use:   "regionalized-products",
+		Short: "Resolve a VTEX region, create a segment, and search Intelligent Search products",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			application, err := bootstrap(appOptions(*options))
+			if err != nil {
+				return err
+			}
+
+			input := capability.Input{
+				"brand":       brand,
+				"country":     country,
+				"tradePolicy": tradePolicy,
+				"longitude":   longitude,
+				"latitude":    latitude,
+				"page":        page,
+				"count":       count,
+			}
+			if text != "" {
+				input["text"] = text
+			}
+			if by != "" {
+				input["by"] = by
+			}
+			if len(values) > 0 {
+				input["value"] = values
+			}
+			if query != "" {
+				input["query"] = query
+			}
+			if len(facets) > 0 {
+				input["facet"] = facets
+			}
+			if sort != "" {
+				input["sort"] = sort
+			}
+			if locale != "" {
+				input["locale"] = locale
+			}
+			if hideUnavailable || includeUnavailable {
+				input["hideUnavailable"] = hideUnavailable && !includeUnavailable
+			}
+			if simulationBehavior != "" {
+				input["simulationBehavior"] = simulationBehavior
+			}
+
+			pipeline := execution.NewPipeline(application.Registry)
+			envelope, err := pipeline.Execute(cmd.Context(), execution.ExecuteRequest{
+				CapabilityID:  workflow.CapabilityRegionalizedIntelligentSearchProductsID,
+				Input:         input,
+				Profile:       application.Config.Profile,
+				CorrelationID: options.correlationID,
+				Confirmed:     confirmed,
+			})
+			if err != nil {
+				return err
+			}
+
+			return writeExecutionEnvelope(cmd.OutOrStdout(), envelope)
+		},
+	}
+
+	command.Flags().StringVar(&brand, "brand", "exito", "VTEX brand account to query: exito or carulla")
+	command.Flags().StringVar(&country, "country", "COL", "Country code for VTEX Checkout Regions")
+	command.Flags().StringVar(&tradePolicy, "trade-policy", "", "Required VTEX trade policy/sales channel")
+	command.Flags().StringVar(&longitude, "longitude", "", "Longitude used in VTEX geoCoordinates")
+	command.Flags().StringVar(&latitude, "latitude", "", "Latitude used in VTEX geoCoordinates")
+	command.Flags().StringVar(&text, "text", "", "Natural-language search text")
+	command.Flags().StringVar(&by, "by", "", "Typed lookup mode: product-id, sku-id, ean, sku-reference, slug, or id")
+	command.Flags().StringArrayVar(&values, "value", nil, "Lookup value used with --by; repeat for same-type multi-ID lookup")
+	command.Flags().StringVar(&query, "query", "", "Raw Intelligent Search query expression")
+	command.Flags().StringArrayVar(&facets, "facet", nil, "Additional path facet as key=value; repeat for multiple facets")
+	command.Flags().IntVar(&page, "page", 1, "Result page")
+	command.Flags().IntVar(&count, "count", 24, "Products per page")
+	command.Flags().StringVar(&sort, "sort", "", "Sort value, such as price:asc or orders:desc; empty means relevance")
+	command.Flags().StringVar(&locale, "locale", "", "BCP 47 locale")
+	command.Flags().BoolVar(&hideUnavailable, "hide-unavailable", false, "Hide unavailable products")
+	command.Flags().BoolVar(&includeUnavailable, "include-unavailable", false, "Include unavailable products")
+	command.Flags().StringVar(&simulationBehavior, "simulation-behavior", "", "Simulation behavior: default, skip, or only1P")
+	command.Flags().BoolVar(&confirmed, "confirm", false, "Explicitly confirm VTEX segment creation for regionalized search")
+	_ = command.MarkFlagRequired("trade-policy")
+	_ = command.MarkFlagRequired("longitude")
+	_ = command.MarkFlagRequired("latitude")
 	command.MarkFlagsMutuallyExclusive("hide-unavailable", "include-unavailable")
 	command.MarkFlagsMutuallyExclusive("text", "query")
 	command.MarkFlagsMutuallyExclusive("text", "by")
