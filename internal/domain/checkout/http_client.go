@@ -75,6 +75,23 @@ func (c HTTPClient) AddItems(ctx context.Context, input AddItemsInput) (OrderFor
 	return c.doOrderForm(request, input.Brand, path+"?allowedOutdatedData=false")
 }
 
+func (c HTTPClient) UpdateClientProfile(ctx context.Context, input UpdateClientProfileInput) (OrderFormSummary, error) {
+	if strings.TrimSpace(c.baseURL) == "" {
+		return OrderFormSummary{}, capability.StructuredError{Code: ErrorCheckoutNotConfigured, Message: "VTEX Checkout client is not configured."}
+	}
+	path := checkoutOrderFormPath + "/" + url.PathEscape(input.OrderFormID) + "/attachments/clientProfileData"
+	body, err := json.Marshal(input.ClientProfile)
+	if err != nil {
+		return OrderFormSummary{}, capability.StructuredError{Code: ErrorCheckoutInvalidInput, Message: "Checkout client profile request is invalid."}
+	}
+	request, err := c.client.NewRequest(ctx, http.MethodPost, path, bytes.NewReader(body))
+	if err != nil {
+		return OrderFormSummary{}, capability.StructuredError{Code: ErrorCheckoutNotConfigured, Message: "VTEX Checkout provider base URL is invalid."}
+	}
+	request.Header.Set("Content-Type", "application/json")
+	return c.doOrderForm(request, input.Brand, path)
+}
+
 func (c HTTPClient) doOrderForm(request *http.Request, brand string, requestPath string) (OrderFormSummary, error) {
 	response, err := c.client.Do(request)
 	if err != nil {

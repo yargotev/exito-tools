@@ -1527,3 +1527,90 @@ func TestCheckoutAddItemsParsesRepeatedItems(t *testing.T) {
 		t.Fatalf("input = %#v, want parsed brand/orderForm/items", gotInput)
 	}
 }
+
+func TestCheckoutUpdateClientProfileRequiresConfirmation(t *testing.T) {
+	t.Parallel()
+
+	called := false
+	builder := registry.NewBuilder()
+	if err := builder.RegisterExecutable(capability.Executable{
+		Definition: checkout.UpdateClientProfileDefinition(),
+		Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
+			called = true
+			return capability.ExecutionResult{Data: checkout.UpdateClientProfileResult{}}, nil
+		},
+	}); err != nil {
+		t.Fatalf("RegisterExecutable() error = %v", err)
+	}
+
+	root := clisurface.NewRoot(func(options app.Options) (*app.Application, error) {
+		return &app.Application{Config: config.Effective{Profile: "staging"}, Registry: builder.Finalize()}, nil
+	})
+
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stdout)
+	root.SetArgs([]string{"checkout", "update-client-profile", "--brand", "exito", "--order-form-id", "of-1", "--input-json", `{"email":"customer@example.com","firstName":"Jane","lastName":"Doe","documentType":"cc","document":"123","phone":"3001234567"}`})
+
+	if err := root.Execute(); err == nil {
+		t.Fatalf("Execute() error = nil, want failure")
+	}
+	if called {
+		t.Fatalf("checkout handler was called without confirmation")
+	}
+
+	var got struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+		Meta struct {
+			CapabilityID string `json:"capabilityId"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("checkout output is not JSON: %v\n%s", err, stdout.String())
+	}
+	if got.OK || got.Error.Code != "CONFIRMATION_REQUIRED" || got.Meta.CapabilityID != checkout.CapabilityUpdateClientProfileID {
+		t.Fatalf("envelope = %#v, want confirmation-required checkout failure", got)
+	}
+}
+
+func TestCheckoutUpdateClientProfileParsesInputJSONAndRedactsOutput(t *testing.T) {
+	t.Parallel()
+
+	var gotInput capability.Input
+	builder := registry.NewBuilder()
+	if err := builder.RegisterExecutable(capability.Executable{
+		Definition: checkout.UpdateClientProfileDefinition(),
+		Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
+			gotInput = request.Input
+			return capability.ExecutionResult{Data: checkout.UpdateClientProfileResult{OrderForm: checkout.OrderFormSummary{ID: "of-1", ClientProfileDataSet: true}}}, nil
+		},
+	}); err != nil {
+		t.Fatalf("RegisterExecutable() error = %v", err)
+	}
+
+	root := clisurface.NewRoot(func(options app.Options) (*app.Application, error) {
+		return &app.Application{Config: config.Effective{Profile: "staging"}, Registry: builder.Finalize()}, nil
+	})
+
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stdout)
+	root.SetArgs([]string{"checkout", "update-client-profile", "--brand", "carulla", "--order-form-id", "of-1", "--input-json", `{"email":"customer@example.com","firstName":"Jane","lastName":"Doe","documentType":"cc","document":"123","phone":"3001234567"}`, "--confirm"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v\n%s", err, stdout.String())
+	}
+	profile, ok := gotInput["clientProfile"].(map[string]any)
+	if !ok {
+		t.Fatalf("clientProfile input = %#v, want JSON object", gotInput["clientProfile"])
+	}
+	if gotInput["brand"] != "carulla" || gotInput["orderFormId"] != "of-1" || profile["email"] != "customer@example.com" || profile["document"] != "123" {
+		t.Fatalf("input = %#v, want parsed brand/orderForm/profile", gotInput)
+	}
+	if strings.Contains(stdout.String(), "customer@example.com") || strings.Contains(stdout.String(), "3001234567") {
+		t.Fatalf("stdout contains raw client profile data: %s", stdout.String())
+	}
+}

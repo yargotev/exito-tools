@@ -9,10 +9,11 @@ import (
 )
 
 const (
-	CapabilityGetOrderFormID    = "checkout.get-order-form"
-	CapabilityCreateOrderFormID = "checkout.create-order-form"
-	CapabilityAddItemsID        = "checkout.add-items"
-	DomainName                  = "checkout"
+	CapabilityGetOrderFormID        = "checkout.get-order-form"
+	CapabilityCreateOrderFormID     = "checkout.create-order-form"
+	CapabilityAddItemsID            = "checkout.add-items"
+	CapabilityUpdateClientProfileID = "checkout.update-client-profile"
+	DomainName                      = "checkout"
 
 	ErrorCheckoutNotConfigured           = "CHECKOUT_NOT_CONFIGURED"
 	ErrorCheckoutProviderUnavailable     = "CHECKOUT_PROVIDER_UNAVAILABLE"
@@ -34,6 +35,21 @@ type AddItemsInput struct {
 	Brand       string
 	OrderFormID string
 	Items       []AddItemInput
+}
+
+type UpdateClientProfileInput struct {
+	Brand         string
+	OrderFormID   string
+	ClientProfile ClientProfileInput
+}
+
+type ClientProfileInput struct {
+	Email        string `json:"email"`
+	FirstName    string `json:"firstName"`
+	LastName     string `json:"lastName"`
+	DocumentType string `json:"documentType"`
+	Document     string `json:"document"`
+	Phone        string `json:"phone"`
 }
 
 type AddItemInput struct {
@@ -90,6 +106,10 @@ type AddItemsResult struct {
 	Items     []AddItemInput   `json:"items"`
 }
 
+type UpdateClientProfileResult struct {
+	OrderForm OrderFormSummary `json:"orderForm"`
+}
+
 type Getter interface {
 	GetOrderForm(ctx context.Context, input GetOrderFormInput) (OrderFormSummary, error)
 }
@@ -102,10 +122,15 @@ type Adder interface {
 	AddItems(ctx context.Context, input AddItemsInput) (OrderFormSummary, error)
 }
 
+type ClientProfileUpdater interface {
+	UpdateClientProfile(ctx context.Context, input UpdateClientProfileInput) (OrderFormSummary, error)
+}
+
 type (
-	GetOrderFormUseCase    struct{ getter Getter }
-	CreateOrderFormUseCase struct{ creator Creator }
-	AddItemsUseCase        struct{ adder Adder }
+	GetOrderFormUseCase        struct{ getter Getter }
+	CreateOrderFormUseCase     struct{ creator Creator }
+	AddItemsUseCase            struct{ adder Adder }
+	UpdateClientProfileUseCase struct{ updater ClientProfileUpdater }
 )
 
 func NewGetOrderFormUseCase(getter Getter) GetOrderFormUseCase {
@@ -118,6 +143,10 @@ func NewCreateOrderFormUseCase(creator Creator) CreateOrderFormUseCase {
 
 func NewAddItemsUseCase(adder Adder) AddItemsUseCase {
 	return AddItemsUseCase{adder: adder}
+}
+
+func NewUpdateClientProfileUseCase(updater ClientProfileUpdater) UpdateClientProfileUseCase {
+	return UpdateClientProfileUseCase{updater: updater}
 }
 
 func (u GetOrderFormUseCase) Execute(ctx context.Context, input GetOrderFormInput) (GetOrderFormResult, error) {
@@ -167,6 +196,21 @@ func (u AddItemsUseCase) Execute(ctx context.Context, input AddItemsInput) (AddI
 	return AddItemsResult{OrderForm: orderForm, Items: input.Items}, nil
 }
 
+func (u UpdateClientProfileUseCase) Execute(ctx context.Context, input UpdateClientProfileInput) (UpdateClientProfileResult, error) {
+	if u.updater == nil {
+		return UpdateClientProfileResult{}, capability.StructuredError{Code: ErrorCheckoutNotConfigured, Message: "VTEX Checkout client is not configured."}
+	}
+	input = normalizeUpdateClientProfileInput(input)
+	if err := validateUpdateClientProfileInput(input); err != nil {
+		return UpdateClientProfileResult{}, err
+	}
+	orderForm, err := u.updater.UpdateClientProfile(ctx, input)
+	if err != nil {
+		return UpdateClientProfileResult{}, err
+	}
+	return UpdateClientProfileResult{OrderForm: orderForm}, nil
+}
+
 func NewGetOrderFormCapability(getter Getter) capability.Executable {
 	useCase := NewGetOrderFormUseCase(getter)
 	return capability.Executable{Definition: GetOrderFormDefinition(), Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
@@ -200,6 +244,17 @@ func NewAddItemsCapability(adder Adder) capability.Executable {
 	}}
 }
 
+func NewUpdateClientProfileCapability(updater ClientProfileUpdater) capability.Executable {
+	useCase := NewUpdateClientProfileUseCase(updater)
+	return capability.Executable{Definition: UpdateClientProfileDefinition(), Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
+		result, err := useCase.Execute(ctx, updateClientProfileInputFromCapability(request.Input))
+		if err != nil {
+			return capability.ExecutionResult{}, err
+		}
+		return capability.ExecutionResult{Data: result}, nil
+	}}
+}
+
 func GetOrderFormDefinition() capability.Definition {
 	return capability.Definition{ID: CapabilityGetOrderFormID, Domain: DomainName, Version: "1.0.0", Title: "Get VTEX Checkout orderForm", Description: "Gets a known VTEX Checkout orderForm by ID and returns a redacted summary.", Risk: capability.RiskReadOnly, Audiences: []capability.Audience{capability.AudienceAgents, capability.AudiencePeople}, Visibility: []capability.Visibility{capability.VisibilityCLI, capability.VisibilityCommandPalette}, InputSchema: &capability.InputSchema{Fields: []capability.InputField{{Name: "brand", Type: capability.InputTypeString, Required: false, Description: "VTEX brand account to query: exito or carulla. Defaults to exito."}, {Name: "orderFormId", Type: capability.InputTypeString, Required: true, Description: "VTEX Checkout orderForm identifier."}}}}
 }
@@ -210,6 +265,10 @@ func CreateOrderFormDefinition() capability.Definition {
 
 func AddItemsDefinition() capability.Definition {
 	return capability.Definition{ID: CapabilityAddItemsID, Domain: DomainName, Version: "1.0.0", Title: "Add items to VTEX Checkout orderForm", Description: "Adds selected SKU items to an existing VTEX Checkout orderForm.", Risk: capability.RiskSafeWrite, RequiresConfirmation: true, Audiences: []capability.Audience{capability.AudienceAgents, capability.AudiencePeople}, Visibility: []capability.Visibility{capability.VisibilityCLI, capability.VisibilityCommandPalette}, InputSchema: &capability.InputSchema{Fields: []capability.InputField{{Name: "brand", Type: capability.InputTypeString, Required: false, Description: "VTEX brand account to query: exito or carulla. Defaults to exito."}, {Name: "orderFormId", Type: capability.InputTypeString, Required: true, Description: "VTEX Checkout orderForm identifier."}, {Name: "items", Type: capability.InputTypeArray, Required: true, Description: "Items to add. Each item contains sku, quantity, and optional seller."}}}}
+}
+
+func UpdateClientProfileDefinition() capability.Definition {
+	return capability.Definition{ID: CapabilityUpdateClientProfileID, Domain: DomainName, Version: "1.0.0", Title: "Update VTEX Checkout client profile", Description: "Attaches customer client profile data to an existing VTEX Checkout orderForm and returns a redacted summary.", Risk: capability.RiskSafeWrite, RequiresConfirmation: true, Audiences: []capability.Audience{capability.AudienceAgents, capability.AudiencePeople}, Visibility: []capability.Visibility{capability.VisibilityCLI, capability.VisibilityCommandPalette}, InputSchema: &capability.InputSchema{Fields: []capability.InputField{{Name: "brand", Type: capability.InputTypeString, Required: false, Description: "VTEX brand account to query: exito or carulla. Defaults to exito."}, {Name: "orderFormId", Type: capability.InputTypeString, Required: true, Description: "VTEX Checkout orderForm identifier."}, {Name: "clientProfile", Type: capability.InputTypeObject, Required: true, Description: "Client profile object with email, firstName, lastName, documentType, document, and phone."}}}}
 }
 
 func getOrderFormInputFromCapability(input capability.Input) GetOrderFormInput {
@@ -243,6 +302,18 @@ func addItemsInputFromCapability(input capability.Input) AddItemsInput {
 		out.OrderFormID = value
 	}
 	out.Items = addItemsFromCapabilityValue(input["items"])
+	return out
+}
+
+func updateClientProfileInputFromCapability(input capability.Input) UpdateClientProfileInput {
+	out := UpdateClientProfileInput{}
+	if value, ok := input["brand"].(string); ok {
+		out.Brand = value
+	}
+	if value, ok := input["orderFormId"].(string); ok {
+		out.OrderFormID = value
+	}
+	out.ClientProfile = clientProfileFromCapabilityValue(input["clientProfile"])
 	return out
 }
 
@@ -282,6 +353,42 @@ func addItemFromMap(mapped map[string]any) AddItemInput {
 		}
 	}
 	return item
+}
+
+func clientProfileFromCapabilityValue(value any) ClientProfileInput {
+	switch profile := value.(type) {
+	case ClientProfileInput:
+		return profile
+	case map[string]any:
+		return clientProfileFromMap(profile)
+	case capability.Input:
+		return clientProfileFromMap(map[string]any(profile))
+	default:
+		return ClientProfileInput{}
+	}
+}
+
+func clientProfileFromMap(mapped map[string]any) ClientProfileInput {
+	profile := ClientProfileInput{}
+	if value, ok := mapped["email"].(string); ok {
+		profile.Email = value
+	}
+	if value, ok := mapped["firstName"].(string); ok {
+		profile.FirstName = value
+	}
+	if value, ok := mapped["lastName"].(string); ok {
+		profile.LastName = value
+	}
+	if value, ok := mapped["documentType"].(string); ok {
+		profile.DocumentType = value
+	}
+	if value, ok := mapped["document"].(string); ok {
+		profile.Document = value
+	}
+	if value, ok := mapped["phone"].(string); ok {
+		profile.Phone = value
+	}
+	return profile
 }
 
 func validateGetOrderFormInput(input GetOrderFormInput) error {
@@ -326,6 +433,41 @@ func normalizeAddItemsInput(input AddItemsInput) AddItemsInput {
 		input.Items[index].SKU = strings.TrimSpace(input.Items[index].SKU)
 		input.Items[index].Seller = strings.TrimSpace(input.Items[index].Seller)
 	}
+	return input
+}
+
+func validateUpdateClientProfileInput(input UpdateClientProfileInput) error {
+	if input.OrderFormID == "" {
+		return capability.StructuredError{Code: ErrorCheckoutInvalidInput, Message: "orderFormId is required."}
+	}
+	required := []struct {
+		field string
+		value string
+	}{
+		{field: "clientProfile.email", value: input.ClientProfile.Email},
+		{field: "clientProfile.firstName", value: input.ClientProfile.FirstName},
+		{field: "clientProfile.lastName", value: input.ClientProfile.LastName},
+		{field: "clientProfile.documentType", value: input.ClientProfile.DocumentType},
+		{field: "clientProfile.document", value: input.ClientProfile.Document},
+		{field: "clientProfile.phone", value: input.ClientProfile.Phone},
+	}
+	for _, item := range required {
+		if item.value == "" {
+			return capability.StructuredError{Code: ErrorCheckoutInvalidInput, Message: item.field + " is required."}
+		}
+	}
+	return validateBrand(input.Brand)
+}
+
+func normalizeUpdateClientProfileInput(input UpdateClientProfileInput) UpdateClientProfileInput {
+	input.Brand = normalizeBrandInput(input.Brand)
+	input.OrderFormID = strings.TrimSpace(input.OrderFormID)
+	input.ClientProfile.Email = strings.TrimSpace(input.ClientProfile.Email)
+	input.ClientProfile.FirstName = strings.TrimSpace(input.ClientProfile.FirstName)
+	input.ClientProfile.LastName = strings.TrimSpace(input.ClientProfile.LastName)
+	input.ClientProfile.DocumentType = strings.TrimSpace(input.ClientProfile.DocumentType)
+	input.ClientProfile.Document = strings.TrimSpace(input.ClientProfile.Document)
+	input.ClientProfile.Phone = strings.TrimSpace(input.ClientProfile.Phone)
 	return input
 }
 

@@ -10,9 +10,10 @@ import (
 )
 
 type recordingCheckoutClient struct {
-	getInput    checkout.GetOrderFormInput
-	createInput checkout.CreateOrderFormInput
-	addInput    checkout.AddItemsInput
+	getInput     checkout.GetOrderFormInput
+	createInput  checkout.CreateOrderFormInput
+	addInput     checkout.AddItemsInput
+	profileInput checkout.UpdateClientProfileInput
 }
 
 func (c *recordingCheckoutClient) GetOrderForm(_ context.Context, input checkout.GetOrderFormInput) (checkout.OrderFormSummary, error) {
@@ -28,6 +29,11 @@ func (c *recordingCheckoutClient) CreateOrderForm(_ context.Context, input check
 func (c *recordingCheckoutClient) AddItems(_ context.Context, input checkout.AddItemsInput) (checkout.OrderFormSummary, error) {
 	c.addInput = input
 	return checkout.OrderFormSummary{Brand: input.Brand, ID: input.OrderFormID, Items: []checkout.ItemSummary{{ID: input.Items[0].SKU, Quantity: input.Items[0].Quantity, Seller: input.Items[0].Seller}}, ItemCount: len(input.Items)}, nil
+}
+
+func (c *recordingCheckoutClient) UpdateClientProfile(_ context.Context, input checkout.UpdateClientProfileInput) (checkout.OrderFormSummary, error) {
+	c.profileInput = input
+	return checkout.OrderFormSummary{Brand: input.Brand, ID: input.OrderFormID, ClientProfileDataSet: true}, nil
 }
 
 func TestUseCasesDefaultBlankBrandToExito(t *testing.T) {
@@ -103,5 +109,61 @@ func TestAddItemsUseCaseRejectsEmptyItems(t *testing.T) {
 	}
 	if client.addInput.OrderFormID != "" {
 		t.Fatalf("client was called with %#v", client.addInput)
+	}
+}
+
+func TestUpdateClientProfileUseCaseNormalizesAndRedactsResult(t *testing.T) {
+	t.Parallel()
+
+	client := &recordingCheckoutClient{}
+	got, err := checkout.NewUpdateClientProfileUseCase(client).Execute(context.Background(), checkout.UpdateClientProfileInput{
+		Brand:       " EXITO ",
+		OrderFormID: " of-1 ",
+		ClientProfile: checkout.ClientProfileInput{
+			Email:        " customer@example.com ",
+			FirstName:    " Jane ",
+			LastName:     " Doe ",
+			DocumentType: " cc ",
+			Document:     " 123 ",
+			Phone:        " 3001234567 ",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if client.profileInput.Brand != "exito" || client.profileInput.OrderFormID != "of-1" {
+		t.Fatalf("input = %#v, want normalized brand/orderForm", client.profileInput)
+	}
+	if client.profileInput.ClientProfile.Email != "customer@example.com" || client.profileInput.ClientProfile.Document != "123" {
+		t.Fatalf("profile = %#v, want trimmed profile fields", client.profileInput.ClientProfile)
+	}
+	if got.OrderForm.ID != "of-1" || !got.OrderForm.ClientProfileDataSet {
+		t.Fatalf("result = %#v, want updated orderForm summary", got)
+	}
+}
+
+func TestUpdateClientProfileUseCaseRejectsIncompleteProfile(t *testing.T) {
+	t.Parallel()
+
+	client := &recordingCheckoutClient{}
+	_, err := checkout.NewUpdateClientProfileUseCase(client).Execute(context.Background(), checkout.UpdateClientProfileInput{
+		Brand:       "exito",
+		OrderFormID: "of-1",
+		ClientProfile: checkout.ClientProfileInput{
+			Email: "customer@example.com",
+		},
+	})
+	if err == nil {
+		t.Fatalf("Execute() error = nil, want structured invalid input")
+	}
+	var structured capability.StructuredError
+	if !errors.As(err, &structured) {
+		t.Fatalf("error = %T, want StructuredError", err)
+	}
+	if structured.Code != checkout.ErrorCheckoutInvalidInput {
+		t.Fatalf("code = %q, want %s", structured.Code, checkout.ErrorCheckoutInvalidInput)
+	}
+	if client.profileInput.OrderFormID != "" {
+		t.Fatalf("client was called with %#v", client.profileInput)
 	}
 }

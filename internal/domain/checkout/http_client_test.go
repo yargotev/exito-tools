@@ -147,3 +147,65 @@ func TestHTTPClientAddItemsPostsOrderItems(t *testing.T) {
 		t.Fatalf("diagnostics = %#v, want add-items request path", got.Diagnostics)
 	}
 }
+
+func TestHTTPClientUpdateClientProfilePostsAttachment(t *testing.T) {
+	t.Parallel()
+
+	var gotRequestID string
+	var gotBody checkout.ClientProfileInput
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotRequestID = r.Header.Get(httpclient.HeaderRequestID)
+		if r.Method != http.MethodPost {
+			t.Fatalf("method = %s, want POST", r.Method)
+		}
+		if r.URL.Path != "/api/checkout/pub/orderForm/of-123/attachments/clientProfileData" {
+			t.Fatalf("path = %q, want client profile attachment path", r.URL.Path)
+		}
+		if r.Header.Get("Content-Type") != "application/json" {
+			t.Fatalf("Content-Type = %q, want application/json", r.Header.Get("Content-Type"))
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Fatalf("Decode request body error = %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"orderFormId":"of-123",
+			"salesChannel":"1",
+			"value":9990,
+			"clientProfileData":{"email":"customer@example.com","document":"123"},
+			"items":[{"id":"sku-1","quantity":1,"seller":"1"}],
+			"totalizers":[{"id":"Items","value":9990}]
+		}`))
+	}))
+	defer server.Close()
+
+	client := checkout.NewHTTPClient(checkout.HTTPClientConfig{BaseURL: server.URL}, server.Client())
+	ctx := httpclient.ContextWithRequestMetadata(context.Background(), httpclient.RequestMetadata{RequestID: "req-profile"})
+	got, err := client.UpdateClientProfile(ctx, checkout.UpdateClientProfileInput{
+		Brand:       "exito",
+		OrderFormID: "of-123",
+		ClientProfile: checkout.ClientProfileInput{
+			Email:        "customer@example.com",
+			FirstName:    "Jane",
+			LastName:     "Doe",
+			DocumentType: "cc",
+			Document:     "123",
+			Phone:        "3001234567",
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateClientProfile() error = %v", err)
+	}
+	if gotRequestID != "req-profile" {
+		t.Fatalf("request ID header = %q, want req-profile", gotRequestID)
+	}
+	if gotBody.Email != "customer@example.com" || gotBody.Document != "123" || gotBody.Phone != "3001234567" {
+		t.Fatalf("request body = %#v, want mapped client profile", gotBody)
+	}
+	if got.ID != "of-123" || !got.ClientProfileDataSet || got.ItemCount != 1 {
+		t.Fatalf("summary = %#v, want redacted updated orderForm", got)
+	}
+	if got.Diagnostics.RequestPath != "/api/checkout/pub/orderForm/of-123/attachments/clientProfileData" {
+		t.Fatalf("diagnostics = %#v, want client profile request path", got.Diagnostics)
+	}
+}
