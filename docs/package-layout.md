@@ -8,8 +8,10 @@ internal/registry/         # Capability registry
 internal/capability/       # Capability, schemas, results, structured errors
 internal/platform/httpclient/ # shared HTTP infrastructure
 
-internal/domain/orders/    # Orders operational domain
+internal/domain/catalog/   # Catalog operational domain
+internal/domain/checkout/  # Checkout operational domain
 internal/domain/geo/       # Geo operational domain
+internal/domain/orders/    # Orders operational domain
 internal/workflow/         # cross-domain Workflow Capabilities
 
 internal/surface/cli/      # Cobra adapter

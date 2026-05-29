@@ -22,6 +22,11 @@ profiles:
         baseUrl: https://exito.vtexcommercestable.com.br
       carulla:
         baseUrl: https://carulla.vtexcommercestable.com.br
+    vtexCheckout:
+      exito:
+        baseUrl: https://exito.vtexcommercestable.com.br
+      carulla:
+        baseUrl: https://carulla.vtexcommercestable.com.br
 ```
 
 `defaultProfile` stores the saved Default Profile used when neither `--profile` nor `EXITO_PROFILE` is set. Secrets and provider tokens must stay in environment variables or non-committed dotenv files, not YAML.
@@ -122,3 +127,15 @@ CARULLA_VTEX_INTELLIGENT_SEARCH_BASE_URL_PROD=https://carulla.vtexcommercestable
 ```
 
 VTEX Intelligent Search product search uses the public storefront/search-engine REST API and does not require VTEX app credentials for the first read-only slice. Prefer VTEX account/environment hosts such as `{accountName}.vtexcommercestable.com.br` or `{accountName}.myvtex.com` for provider diagnostics; custom storefront domains may route differently and are not the default for Exito Tools Intelligent Search. Caller-supplied `vtex_segment` or `vtex_session` cookies are execution inputs only; do not store them in committed YAML or documentation examples with real values.
+
+### VTEX Checkout
+
+```env
+# Public Checkout/orderForm endpoints can also live in YAML profiles.<profile>.vtexCheckout.<brand>.baseUrl.
+EXITO_VTEX_CHECKOUT_BASE_URL_QA=https://exito.vtexcommercestable.com.br
+EXITO_VTEX_CHECKOUT_BASE_URL_PROD=https://exitocol.vtexcommercestable.com.br
+CARULLA_VTEX_CHECKOUT_BASE_URL_QA=https://carulla.vtexcommercestable.com.br
+CARULLA_VTEX_CHECKOUT_BASE_URL_PROD=https://carulla.vtexcommercestable.com.br
+```
+
+VTEX Checkout orderForm assembly uses public Checkout endpoints for cart creation/loading and orderForm attachments. Checkout writes are confirmation-gated safe-write capabilities and must execute sequentially for a given orderForm. Cookie values, orderForm ownership values, and customer PII are execution-time sensitive data and must not be stored in committed YAML or documentation examples with real values.

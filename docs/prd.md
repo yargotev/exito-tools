@@ -2,13 +2,13 @@
 
 ## Problem Statement
 
-Exito operational work needs a single tool that can serve two very different consumers without duplicating domain logic: agents need a stable, scriptable, machine-readable CLI, while everyday users need a guided terminal experience that helps them discover and run useful actions. The project needs a clear architecture before implementation so future domains can be added consistently, initial Orders and Geo capabilities can be built safely, and agents can rely on stable contracts for discovery, execution, output, errors, configuration, and observability.
+Exito operational work needs a single tool that can serve two very different consumers without duplicating domain logic: agents need a stable, scriptable, machine-readable CLI, while everyday users need a guided terminal experience that helps them discover and run useful actions. The project needs clear architecture and roadmap guidance so future domains can be added consistently, Checkout purchase assembly can be built safely, and agents can rely on stable contracts for discovery, execution, output, errors, configuration, and observability.
 
 ## Solution
 
 Build Exito Tools as one Go application with two interaction surfaces: a machine-first CLI and a task-first TUI. Operational Domains expose neutral Capabilities backed by shared Use Cases. The CLI adapts Capabilities into Commands and emits JSON by default. The TUI adapts suitable Capabilities into human-friendly Actions using Bubble Tea. Capabilities are registered explicitly during boot into an immutable registry, can be discovered through a machine-readable capabilities command, and can be executed through both explicit domain commands and a generic capability run command.
 
-The first implementation should establish the core architecture and two initial read-only capabilities: `orders.get` and `geo.geocode-address`. Configuration should use non-sensitive YAML plus environment/dotenv credentials. The Geo provider token must remain outside committed files.
+The first implementation established the core architecture and initial read-only capabilities. The next roadmap expands Exito Tools into a guided VTEX Checkout purchase-assembly tool: create or load an orderForm, add products selected from search results, update client profile data, update shipping data and logistics selections, and inspect the prepared cart. Final order placement and payment processing remain explicitly separate high-risk roadmap steps that require dedicated approval and confirmation gates. Configuration should use non-sensitive YAML plus environment/dotenv credentials. Provider tokens and any customer-sensitive values must remain outside committed files.
 
 ## User Stories
 
@@ -135,6 +135,11 @@ The first implementation should establish the core architecture and two initial 
 - Translate errors at the layer that understands their meaning.
 - Define `orders.get` as the first Orders Capability.
 - Define `geo.geocode-address` as the first Geo Capability.
+- Define Checkout as its own Operational Domain for VTEX orderForm and cart assembly behavior.
+- Add a checkout roadmap that starts with `checkout.get-order-form`, `checkout.create-order-form`, `checkout.add-items`, `checkout.update-client-profile`, and `checkout.update-shipping-data` before any final place-order or payment capabilities.
+- Keep product discovery in Catalog; Checkout may consume selected SKU IDs from search results but must not hide Catalog search side effects inside cart mutations.
+- Treat VTEX Checkout write operations as confirmation-required safe-write capabilities, with no parallel orderForm mutations in a single flow.
+- Keep final order placement and payment processing out of the first Checkout slice until risk, credentials, and non-production validation are explicitly approved.
 - Map the Geo provider response to only message, success, latitude, longitude, status, normalized address, neighborhood, and DANE code.
 - Configure Geo with `EXITO_GEO_BASE_URL` and `EXITO_GEO_TOKEN`.
 - Keep the Geo endpoint path owned by the Geo Domain API Client.
@@ -150,9 +155,11 @@ The first implementation should establish the core architecture and two initial 
 - CLI Surface: Cobra adapter that builds root/domain/run/capabilities/tui commands from registry and execution primitives.
 - TUI Surface: Bubble Tea adapter for task-first navigation, Command Palette, result filters, profile display, and task execution states.
 - HTTP Infrastructure: deep module for authenticated provider requests, timeouts, retries, request IDs, and technical error translation.
-- Orders Domain: domain module exposing `orders.get`.
-- Geo Domain: domain module exposing `geo.geocode-address` and mapping provider DTOs to domain results.
-- Workflow Layer: future module for business-named cross-domain capabilities.
+- Orders Domain: domain module exposing order lookup capabilities such as `orders.get` and `orders.get-vtex`.
+- Geo Domain: domain module exposing `geo.geocode-address`, VTEX region diagnostics, and mapping provider DTOs to domain results.
+- Catalog Domain: domain module exposing product discovery capabilities used before Checkout cart mutation.
+- Checkout Domain: domain module owning VTEX orderForm creation/loading, cart item updates, client profile attachments, shipping/logistics attachments, and later payment/place-order steps.
+- Workflow Layer: module for business-named cross-domain capabilities such as guided purchase assembly from Catalog search into Checkout orderForm updates.
 
 ## Testing Decisions
 
@@ -183,9 +190,9 @@ The first implementation should establish the core architecture and two initial 
 - Auto-pagination by default for list commands.
 - Domain-specific exit codes for every possible failure.
 - Letting external API DTOs define CLI/TUI contracts directly.
-- Building every future domain; only initial Orders and Geo capabilities are in scope.
+- Building every future domain in the first slice; Checkout is now on the roadmap but must be delivered incrementally.
 - Implementing destructive domain operations unless a future capability requires them.
 
 ## Further Notes
 
-The repo currently contains architecture documentation, ADRs, capability docs, configuration docs, and environment templates, but no Go application code yet. The next implementation session should initialize the Go module, scaffold the package layout, implement the deep modules first, and then add the initial CLI contracts before building the TUI. The existing ADRs and glossary are the source of truth for terminology and decisions.
+The repo now contains the Go scaffold and several implemented capabilities. The next product roadmap is VTEX Checkout purchase assembly. Start with non-production, confirmation-gated orderForm operations and documentation/tests for each public contract before adding broader TUI workflows. The existing ADRs, glossary, OpenSpec specs, and capability docs are the source of truth for terminology and decisions.

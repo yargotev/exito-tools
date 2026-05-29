@@ -257,3 +257,26 @@ The Configuration Resolver MUST resolve non-sensitive VTEX Intelligent Search ba
 - **Given** Intelligent Search supports caller-provided VTEX cookies
 - **When** Application Configuration is resolved or serialized
 - **Then** cookie/session/segment values MUST NOT be read from committed YAML fields or exposed in JSON serialization.
+
+### Requirement: VTEX Checkout provider configuration
+
+The Configuration Resolver MUST resolve non-sensitive VTEX Checkout base URLs per profile and brand, while keeping cookies, orderForm ownership values, customer PII, and any credentials out of committed YAML and serialized effective configuration.
+
+#### Scenario: Resolve VTEX Checkout base URL by brand
+
+- **Given** the Effective Profile has `vtexCheckout.exito.baseUrl` configured
+- **When** Checkout capabilities request the Exito Checkout provider
+- **Then** the resolver MUST provide the configured base URL for Exito
+- **And** the provider MUST be marked configured for public orderForm operations.
+
+#### Scenario: Environment overrides YAML Checkout base URL
+
+- **Given** YAML and environment/dotenv both provide a VTEX Checkout base URL for a brand
+- **When** the Configuration Resolver builds effective configuration
+- **Then** the environment/dotenv value MUST take precedence over YAML.
+
+#### Scenario: Sensitive Checkout execution state is not serialized
+
+- **Given** a Checkout execution uses cookies, orderForm ownership values, or customer profile data
+- **When** effective configuration is serialized
+- **Then** those sensitive execution values MUST NOT appear in the serialized configuration.

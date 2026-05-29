@@ -26,6 +26,7 @@ Read these files as needed rather than duplicating their content here:
 | Active change proposals/tasks/designs | `openspec/changes/<change-id>/` |
 | Configuration behavior | `docs/configuration.md`, `openspec/specs/configuration-resolver/spec.md` |
 | Capability contracts | `docs/capabilities/*.md`, `openspec/specs/capability-*/spec.md` |
+| Checkout/orderForm roadmap | `openspec/specs/checkout/spec.md`, `docs/capabilities/checkout.order-form-roadmap.md`, `docs/research/vtex-checkout-order-form.md` |
 | Agent skill inventory | `.atl/skill-registry.md` |
 
 ## Architecture rules
@@ -38,6 +39,8 @@ Read these files as needed rather than duplicating their content here:
 - Map external DTOs into domain-owned models/results before exposing them to use cases or surfaces.
 - Keep Viper, if used, behind the Configuration Resolver. Product precedence is explicit, not library-defined.
 - Secrets come from environment variables or non-committed dotenv files, never committed YAML/docs.
+- VTEX Checkout orderForm behavior belongs in the Checkout Domain, not Orders or Catalog.
+- Catalog discovers products; Checkout mutates carts/orderForms using selected SKU IDs. Do not hide Checkout writes inside search capabilities.
 
 ## CLI/TUI contracts
 
@@ -47,6 +50,8 @@ Read these files as needed rather than duplicating their content here:
 - TUI actions should execute the same capabilities/use cases as CLI commands.
 - Long-running capability execution must be context-aware and cancellable.
 - Risk/destructive actions require explicit confirmation; non-interactive CLI flows must not silently proceed.
+- VTEX Checkout writes are safe-write operations that require confirmation and must be executed sequentially for the same orderForm.
+- Final order placement and payment processing are out of the first Checkout roadmap slice unless the user explicitly approves that higher-risk work.
 
 ## Development commands
 

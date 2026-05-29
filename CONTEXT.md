@@ -144,6 +144,26 @@ _Avoid_: External DTO as model
 A Go package that adapts Capabilities into an **Interaction Surface**, such as CLI Commands or TUI Actions.
 _Avoid_: Business logic owner
 
+**Checkout Domain**:
+The operational domain concerned with VTEX Checkout cart and orderForm assembly before an order is placed. It owns shopping-cart state, orderForm attachments, and checkout-step mutations.
+_Avoid_: Treating cart assembly as Orders lookup, burying Checkout writes inside Catalog search
+
+**VTEX Order Form**:
+The VTEX Checkout cart state object that carries items, client profile data, shipping data, logistics selections, payment data, totals, and related checkout context before order placement. In Exito Tools, orderForm interactions belong to the **Checkout Domain**.
+_Avoid_: OMS order, GEOMS order, generic form
+
+**Checkout Session State**:
+The provider-side and cookie-backed VTEX Checkout state associated with a VTEX Order Form. Exito Tools may create or update this state only through explicit confirmation-gated Checkout capabilities.
+_Avoid_: Hidden browser cookie mutation, implicit shared cart state
+
+**Checkout Attachment**:
+A VTEX Checkout section attached to a VTEX Order Form, such as client profile data, shipping data, client preferences, marketing data, merchant context data, or payment data. Attachments are updated as explicit Checkout capabilities, not as side effects of product search.
+_Avoid_: Random payload blob, surface-owned form state
+
+**Purchase Assembly Flow**:
+A guided workflow that prepares a VTEX Order Form for purchase by creating or loading the orderForm, adding selected items, updating customer and fulfillment attachments, and validating totals/options. Placing and paying the final order are separate high-risk steps unless explicitly approved.
+_Avoid_: One hidden checkout macro, silent order placement
+
 **Orders Domain**:
 The operational domain concerned with orders.
 _Avoid_: Orders commands
