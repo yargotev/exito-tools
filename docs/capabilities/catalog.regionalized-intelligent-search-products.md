@@ -6,6 +6,7 @@ Resolves VTEX Checkout Regions from coordinates, creates a transient VTEX segmen
 - **Risk**: `safe-write`
 - **Requires Confirmation**: yes
 - **CLI Command**: `exito catalog intelligent-search regionalized-products [flags]`
+- **TUI Action**: Command Palette action `Run regionalized VTEX Intelligent Search products`
 
 ## Examples
 
@@ -30,6 +31,10 @@ exito catalog intelligent-search regionalized-products \
   --value 912350 \
   --confirm
 ```
+
+## TUI notes
+
+Open `exito tui`, press `/`, search for `regionalized`, fill the required text inputs (`tradePolicy`, `longitude`, `latitude`, and one query mode such as `text`), then confirm the safe-write prompt. The workflow is palette-only and is not promoted as a primary TUI action.
 
 ## Behavior
 

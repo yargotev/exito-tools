@@ -84,6 +84,13 @@ The TUI Surface MUST provide a Command Palette discovery mode that lists people-
 - WHEN the Command Palette is opened
 - THEN that Capability is shown as a discoverable Action
 
+#### Scenario: Regionalized Intelligent Search is available from the palette
+
+- GIVEN `catalog.regionalized-intelligent-search-products` has people audience and command-palette visibility
+- WHEN the Command Palette is opened
+- THEN the regionalized Intelligent Search Action appears as a discoverable Action
+- AND it is not promoted as a primary Action.
+
 ### Requirement: Command Palette Action execution uses shared Pipeline
 
 The TUI Surface MUST execute selected Command Palette Actions through the shared Capability execution Pipeline rather than invoking domain use cases directly, and in-flight executions MUST be cancellable through the TUI Task Runner context.

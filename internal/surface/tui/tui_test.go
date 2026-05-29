@@ -66,6 +66,51 @@ func TestAppModelShowsGEOMSAndVTEXOMSOrdersPrimaryActions(t *testing.T) {
 			t.Fatalf("view missing Orders primary action %q\n%s", fragment, view)
 		}
 	}
+	if strings.Contains(view, "Run regionalized VTEX Intelligent Search products") {
+		t.Fatalf("regionalized workflow should not be promoted as a primary action\n%s", view)
+	}
+}
+
+func TestAppPaletteShowsRegionalizedIntelligentSearchAction(t *testing.T) {
+	t.Parallel()
+
+	application, err := app.New(app.Options{Config: config.Options{Env: map[string]string{}}})
+	if err != nil {
+		t.Fatalf("app.New() error = %v", err)
+	}
+
+	var model tea.Model = tui.NewModel(application)
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("regionalized")})
+
+	view := model.(tui.Model).View()
+	for _, fragment := range []string{
+		"Command Palette",
+		"Search: regionalized",
+		"Run regionalized VTEX Intelligent Search products (catalog.regionalized-intelligent-search-products)",
+	} {
+		if !strings.Contains(view, fragment) {
+			t.Fatalf("palette view missing %q\n%s", fragment, view)
+		}
+	}
+
+	model, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil {
+		t.Fatalf("regionalized palette selection command = %#v, want nil while form opens", cmd)
+	}
+	view = model.(tui.Model).View()
+	for _, fragment := range []string{
+		"Input Form",
+		"Action: catalog.regionalized-intelligent-search-products",
+		"tradePolicy:",
+		"longitude:",
+		"latitude:",
+		"text:",
+	} {
+		if !strings.Contains(view, fragment) {
+			t.Fatalf("regionalized form missing %q\n%s", fragment, view)
+		}
+	}
 }
 
 func TestCommandPaletteShowsPeopleFacingPaletteActions(t *testing.T) {

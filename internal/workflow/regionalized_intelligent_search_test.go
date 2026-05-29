@@ -61,6 +61,26 @@ func TestRegionalizedIntelligentSearchExecutesRegionSegmentAndSearch(t *testing.
 	}
 }
 
+func TestRegionalizedIntelligentSearchDefinitionIsPeopleFacingPaletteAction(t *testing.T) {
+	definition := workflow.RegionalizedIntelligentSearchProductsDefinition()
+
+	if definition.ID != workflow.CapabilityRegionalizedIntelligentSearchProductsID {
+		t.Fatalf("ID = %q, want %q", definition.ID, workflow.CapabilityRegionalizedIntelligentSearchProductsID)
+	}
+	if !containsAudience(definition.Audiences, capability.AudiencePeople) || !containsAudience(definition.Audiences, capability.AudienceAgents) {
+		t.Fatalf("Audiences = %#v, want agents and people", definition.Audiences)
+	}
+	if !containsVisibility(definition.Visibility, capability.VisibilityCLI) || !containsVisibility(definition.Visibility, capability.VisibilityCommandPalette) {
+		t.Fatalf("Visibility = %#v, want cli and command-palette", definition.Visibility)
+	}
+	if containsVisibility(definition.Visibility, capability.VisibilityTUI) {
+		t.Fatalf("Visibility = %#v, should not promote regionalized workflow as a primary TUI action", definition.Visibility)
+	}
+	if !definition.RequiresConfirmation || definition.Risk != capability.RiskSafeWrite {
+		t.Fatalf("confirmation/risk = %v/%q, want confirmation-required safe-write", definition.RequiresConfirmation, definition.Risk)
+	}
+}
+
 func TestRegionalizedIntelligentSearchRequiresConfirmationInPipeline(t *testing.T) {
 	called := false
 	builder := registry.NewBuilder()
@@ -112,6 +132,24 @@ func TestRegionalizedIntelligentSearchStopsWhenNoRegionID(t *testing.T) {
 		t.Fatalf("segment/search should not be called when no region is resolved")
 	}
 	_ = structured
+}
+
+func containsAudience(values []capability.Audience, target capability.Audience) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func containsVisibility(values []capability.Visibility, target capability.Visibility) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 type fakeRegionResolver struct {

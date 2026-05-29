@@ -185,8 +185,8 @@ func RegionalizedIntelligentSearchProductsDefinition() capability.Definition {
 		Description:          "Resolves a VTEX region, creates a transient segment, and runs Intelligent Search with that segment.",
 		Risk:                 capability.RiskSafeWrite,
 		RequiresConfirmation: true,
-		Audiences:            []capability.Audience{capability.AudienceAgents},
-		Visibility:           []capability.Visibility{capability.VisibilityCLI},
+		Audiences:            []capability.Audience{capability.AudienceAgents, capability.AudiencePeople},
+		Visibility:           []capability.Visibility{capability.VisibilityCLI, capability.VisibilityCommandPalette},
 		InputSchema: &capability.InputSchema{Fields: []capability.InputField{
 			{Name: "brand", Type: capability.InputTypeString, Required: false, Description: "VTEX brand account to query: exito or carulla. Defaults to exito."},
 			{Name: "country", Type: capability.InputTypeString, Required: false, Description: "Country code for Checkout Regions. Defaults to COL."},
