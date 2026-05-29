@@ -76,6 +76,7 @@ func TestNewWiresBootCapabilities(t *testing.T) {
 		{id: workflow.CapabilityRegionalizedIntelligentSearchProductsID, domain: "catalog"},
 		{id: checkout.CapabilityGetOrderFormID, domain: "checkout"},
 		{id: checkout.CapabilityCreateOrderFormID, domain: "checkout"},
+		{id: checkout.CapabilityAddItemsID, domain: "checkout"},
 	}
 
 	for _, tt := range tests {

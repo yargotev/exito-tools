@@ -1,7 +1,9 @@
 package checkout
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"strings"
@@ -53,6 +55,26 @@ func (c HTTPClient) CreateOrderForm(ctx context.Context, input CreateOrderFormIn
 	return c.doOrderForm(request, input.Brand, path+"?forceNewCart=true&sc="+url.QueryEscape(input.SalesChannel))
 }
 
+func (c HTTPClient) AddItems(ctx context.Context, input AddItemsInput) (OrderFormSummary, error) {
+	if strings.TrimSpace(c.baseURL) == "" {
+		return OrderFormSummary{}, capability.StructuredError{Code: ErrorCheckoutNotConfigured, Message: "VTEX Checkout client is not configured."}
+	}
+	path := checkoutOrderFormPath + "/" + url.PathEscape(input.OrderFormID) + "/items"
+	body, err := json.Marshal(addItemsRequestFromInput(input))
+	if err != nil {
+		return OrderFormSummary{}, capability.StructuredError{Code: ErrorCheckoutInvalidInput, Message: "Checkout add-items request is invalid."}
+	}
+	request, err := c.client.NewRequest(ctx, http.MethodPost, path, bytes.NewReader(body))
+	if err != nil {
+		return OrderFormSummary{}, capability.StructuredError{Code: ErrorCheckoutNotConfigured, Message: "VTEX Checkout provider base URL is invalid."}
+	}
+	request.Header.Set("Content-Type", "application/json")
+	query := request.URL.Query()
+	query.Set("allowedOutdatedData", "false")
+	request.URL.RawQuery = query.Encode()
+	return c.doOrderForm(request, input.Brand, path+"?allowedOutdatedData=false")
+}
+
 func (c HTTPClient) doOrderForm(request *http.Request, brand string, requestPath string) (OrderFormSummary, error) {
 	response, err := c.client.Do(request)
 	if err != nil {
@@ -93,6 +115,25 @@ type itemDTO struct {
 	Price        int    `json:"price"`
 	SellingPrice int    `json:"sellingPrice"`
 	Availability string `json:"availability"`
+}
+
+type addItemsRequestDTO struct {
+	OrderItems []addItemRequestDTO `json:"orderItems"`
+}
+
+type addItemRequestDTO struct {
+	ID       string `json:"id"`
+	Quantity int    `json:"quantity"`
+	Seller   string `json:"seller"`
+	Index    int    `json:"index"`
+}
+
+func addItemsRequestFromInput(input AddItemsInput) addItemsRequestDTO {
+	items := make([]addItemRequestDTO, 0, len(input.Items))
+	for index, item := range input.Items {
+		items = append(items, addItemRequestDTO{ID: item.SKU, Quantity: item.Quantity, Seller: item.Seller, Index: index})
+	}
+	return addItemsRequestDTO{OrderItems: items}
 }
 
 func mapOrderFormDTO(dto orderFormDTO, brand string, requestPath string, status int) OrderFormSummary {

@@ -1441,3 +1441,89 @@ func TestCheckoutCreateOrderFormRequiresConfirmation(t *testing.T) {
 		t.Fatalf("envelope = %#v, want confirmation-required checkout failure", got)
 	}
 }
+
+func TestCheckoutAddItemsRequiresConfirmation(t *testing.T) {
+	t.Parallel()
+
+	called := false
+	builder := registry.NewBuilder()
+	if err := builder.RegisterExecutable(capability.Executable{
+		Definition: checkout.AddItemsDefinition(),
+		Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
+			called = true
+			return capability.ExecutionResult{Data: checkout.AddItemsResult{}}, nil
+		},
+	}); err != nil {
+		t.Fatalf("RegisterExecutable() error = %v", err)
+	}
+
+	root := clisurface.NewRoot(func(options app.Options) (*app.Application, error) {
+		return &app.Application{Config: config.Effective{Profile: "staging"}, Registry: builder.Finalize()}, nil
+	})
+
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stdout)
+	root.SetArgs([]string{"checkout", "add-items", "--brand", "exito", "--order-form-id", "of-1", "--item", "sku=sku-1,quantity=2"})
+
+	if err := root.Execute(); err == nil {
+		t.Fatalf("Execute() error = nil, want failure")
+	}
+	if called {
+		t.Fatalf("checkout handler was called without confirmation")
+	}
+
+	var got struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+		Meta struct {
+			CapabilityID string `json:"capabilityId"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("checkout output is not JSON: %v\n%s", err, stdout.String())
+	}
+	if got.OK || got.Error.Code != "CONFIRMATION_REQUIRED" || got.Meta.CapabilityID != checkout.CapabilityAddItemsID {
+		t.Fatalf("envelope = %#v, want confirmation-required checkout failure", got)
+	}
+}
+
+func TestCheckoutAddItemsParsesRepeatedItems(t *testing.T) {
+	t.Parallel()
+
+	var gotInput capability.Input
+	builder := registry.NewBuilder()
+	if err := builder.RegisterExecutable(capability.Executable{
+		Definition: checkout.AddItemsDefinition(),
+		Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
+			gotInput = request.Input
+			return capability.ExecutionResult{Data: checkout.AddItemsResult{OrderForm: checkout.OrderFormSummary{ID: "of-1", ItemCount: 2}}}, nil
+		},
+	}); err != nil {
+		t.Fatalf("RegisterExecutable() error = %v", err)
+	}
+
+	root := clisurface.NewRoot(func(options app.Options) (*app.Application, error) {
+		return &app.Application{Config: config.Effective{Profile: "staging"}, Registry: builder.Finalize()}, nil
+	})
+
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stdout)
+	root.SetArgs([]string{"checkout", "add-items", "--brand", "carulla", "--order-form-id", "of-1", "--item", "sku=sku-1,quantity=2", "--item", "sku=sku-2,quantity=1,seller=marketplace", "--confirm"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v\n%s", err, stdout.String())
+	}
+	items, ok := gotInput["items"].([]any)
+	if !ok || len(items) != 2 {
+		t.Fatalf("items input = %#v, want two capability items", gotInput["items"])
+	}
+	first := items[0].(map[string]any)
+	second := items[1].(map[string]any)
+	if gotInput["brand"] != "carulla" || gotInput["orderFormId"] != "of-1" || first["seller"] != "1" || second["seller"] != "marketplace" {
+		t.Fatalf("input = %#v, want parsed brand/orderForm/items", gotInput)
+	}
+}

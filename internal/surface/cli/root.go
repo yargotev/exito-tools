@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -179,6 +181,7 @@ func newCheckoutCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Com
 	}
 	command.AddCommand(newCheckoutGetOrderFormCommand(bootstrap, options))
 	command.AddCommand(newCheckoutCreateOrderFormCommand(bootstrap, options))
+	command.AddCommand(newCheckoutAddItemsCommand(bootstrap, options))
 	return command
 }
 
@@ -259,6 +262,88 @@ func newCheckoutCreateOrderFormCommand(bootstrap Bootstrapper, options *rootOpti
 	command.Flags().BoolVar(&confirmed, "confirm", false, "Explicitly confirm VTEX Checkout orderForm creation")
 	_ = command.MarkFlagRequired("sales-channel")
 	return command
+}
+
+func newCheckoutAddItemsCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Command {
+	var brand string
+	var orderFormID string
+	var rawItems []string
+	var confirmed bool
+
+	command := &cobra.Command{
+		Use:   "add-items",
+		Short: "Add SKU items to a VTEX Checkout orderForm",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			items, err := parseCheckoutItems(rawItems)
+			if err != nil {
+				return err
+			}
+
+			application, err := bootstrap(appOptions(*options))
+			if err != nil {
+				return err
+			}
+
+			pipeline := execution.NewPipeline(application.Registry)
+			envelope, err := pipeline.Execute(cmd.Context(), execution.ExecuteRequest{
+				CapabilityID: checkout.CapabilityAddItemsID,
+				Input: capability.Input{
+					"brand":       brand,
+					"orderFormId": orderFormID,
+					"items":       checkoutItemsAsCapabilityInput(items),
+				},
+				Profile:       application.Config.Profile,
+				CorrelationID: options.correlationID,
+				Confirmed:     confirmed,
+			})
+			if err != nil {
+				return err
+			}
+
+			return writeExecutionEnvelope(cmd.OutOrStdout(), envelope)
+		},
+	}
+
+	command.Flags().StringVar(&brand, "brand", "exito", "VTEX brand account to query: exito or carulla")
+	command.Flags().StringVar(&orderFormID, "order-form-id", "", "VTEX Checkout orderForm identifier")
+	command.Flags().StringArrayVar(&rawItems, "item", nil, "Item to add as sku=<sku>,quantity=<qty>[,seller=<seller>]; repeat for multiple items")
+	command.Flags().BoolVar(&confirmed, "confirm", false, "Explicitly confirm VTEX Checkout item addition")
+	_ = command.MarkFlagRequired("order-form-id")
+	_ = command.MarkFlagRequired("item")
+	return command
+}
+
+func parseCheckoutItems(rawItems []string) ([]checkout.AddItemInput, error) {
+	items := make([]checkout.AddItemInput, 0, len(rawItems))
+	for _, raw := range rawItems {
+		fields := map[string]string{}
+		for _, part := range strings.Split(raw, ",") {
+			key, value, ok := strings.Cut(part, "=")
+			if !ok {
+				return nil, fmt.Errorf("invalid --item %q: expected sku=<sku>,quantity=<qty>[,seller=<seller>]", raw)
+			}
+			fields[strings.TrimSpace(key)] = strings.TrimSpace(value)
+		}
+		quantity, err := strconv.Atoi(fields["quantity"])
+		if err != nil {
+			return nil, fmt.Errorf("invalid --item %q: quantity must be an integer", raw)
+		}
+		seller := fields["seller"]
+		if seller == "" {
+			seller = "1"
+		}
+		items = append(items, checkout.AddItemInput{SKU: fields["sku"], Quantity: quantity, Seller: seller})
+	}
+	return items, nil
+}
+
+func checkoutItemsAsCapabilityInput(items []checkout.AddItemInput) []any {
+	out := make([]any, 0, len(items))
+	for _, item := range items {
+		out = append(out, map[string]any{"sku": item.SKU, "quantity": item.Quantity, "seller": item.Seller})
+	}
+	return out
 }
 
 func newCatalogCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Command {

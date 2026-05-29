@@ -10,19 +10,23 @@ type BrandClient struct {
 	exito interface {
 		Getter
 		Creator
+		Adder
 	}
 	carulla interface {
 		Getter
 		Creator
+		Adder
 	}
 }
 
 func NewBrandClient(exito interface {
 	Getter
 	Creator
+	Adder
 }, carulla interface {
 	Getter
 	Creator
+	Adder
 },
 ) BrandClient {
 	return BrandClient{exito: exito, carulla: carulla}
@@ -36,9 +40,14 @@ func (c BrandClient) CreateOrderForm(ctx context.Context, input CreateOrderFormI
 	return c.client(input.Brand).CreateOrderForm(ctx, input)
 }
 
+func (c BrandClient) AddItems(ctx context.Context, input AddItemsInput) (OrderFormSummary, error) {
+	return c.client(input.Brand).AddItems(ctx, input)
+}
+
 func (c BrandClient) client(brand string) interface {
 	Getter
 	Creator
+	Adder
 } {
 	if normalizedBrand(brand) == "carulla" {
 		if c.carulla != nil {
@@ -59,6 +68,10 @@ func (UnavailableClient) GetOrderForm(context.Context, GetOrderFormInput) (Order
 }
 
 func (UnavailableClient) CreateOrderForm(context.Context, CreateOrderFormInput) (OrderFormSummary, error) {
+	return OrderFormSummary{}, notConfiguredError()
+}
+
+func (UnavailableClient) AddItems(context.Context, AddItemsInput) (OrderFormSummary, error) {
 	return OrderFormSummary{}, notConfiguredError()
 }
 
