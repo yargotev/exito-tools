@@ -1064,3 +1064,50 @@ profiles:
 		}
 	})
 }
+
+func TestResolveVTEXCheckoutProvider(t *testing.T) {
+	t.Parallel()
+
+	t.Run("YAML profile configures checkout brand base URLs", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		writeTextFile(t, filepath.Join(workDir, "exito.yaml"), `defaultProfile: staging
+profiles:
+  staging:
+    vtexCheckout:
+      exito:
+        baseUrl: https://checkout-exito.example.test
+      carulla:
+        baseUrl: https://checkout-carulla.example.test
+`)
+
+		resolved := resolveForTest(t, config.Options{Env: map[string]string{}, WorkDir: workDir})
+		if !resolved.VTEXCheckoutProvider.Exito.Configured || resolved.VTEXCheckoutProvider.Exito.BaseURL != "https://checkout-exito.example.test" {
+			t.Fatalf("exito checkout provider = %#v, want YAML configured", resolved.VTEXCheckoutProvider.Exito)
+		}
+		if resolved.VTEXCheckoutProvider.Carulla.BaseURL != "https://checkout-carulla.example.test" {
+			t.Fatalf("carulla checkout provider = %#v, want YAML base URL", resolved.VTEXCheckoutProvider.Carulla)
+		}
+	})
+
+	t.Run("environment overrides YAML checkout base URL by profile", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		writeTextFile(t, filepath.Join(workDir, "exito.yaml"), `profiles:
+  staging:
+    vtexCheckout:
+      exito:
+        baseUrl: https://yaml.example.test
+`)
+
+		resolved := resolveForTest(t, config.Options{Env: map[string]string{"EXITO_VTEX_CHECKOUT_BASE_URL_QA": "https://env.example.test"}, WorkDir: workDir})
+		if resolved.VTEXCheckoutProvider.Exito.BaseURL != "https://env.example.test" {
+			t.Fatalf("checkout base URL = %q, want environment override", resolved.VTEXCheckoutProvider.Exito.BaseURL)
+		}
+		if resolved.VTEXCheckoutProvider.Exito.BaseURLSource != config.SourceEnvironment {
+			t.Fatalf("checkout source = %q, want environment", resolved.VTEXCheckoutProvider.Exito.BaseURLSource)
+		}
+	})
+}

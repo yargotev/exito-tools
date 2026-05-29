@@ -10,6 +10,7 @@ import (
 	"github.com/yargotev/exito-tools/internal/capability"
 	"github.com/yargotev/exito-tools/internal/config"
 	"github.com/yargotev/exito-tools/internal/domain/catalog"
+	"github.com/yargotev/exito-tools/internal/domain/checkout"
 	"github.com/yargotev/exito-tools/internal/domain/geo"
 	"github.com/yargotev/exito-tools/internal/domain/orders"
 	"github.com/yargotev/exito-tools/internal/execution"
@@ -73,6 +74,8 @@ func TestNewWiresBootCapabilities(t *testing.T) {
 		{id: "catalog.intelligent-search-products", domain: "catalog"},
 		{id: "catalog.create-vtex-segment", domain: "catalog"},
 		{id: workflow.CapabilityRegionalizedIntelligentSearchProductsID, domain: "catalog"},
+		{id: checkout.CapabilityGetOrderFormID, domain: "checkout"},
+		{id: checkout.CapabilityCreateOrderFormID, domain: "checkout"},
 	}
 
 	for _, tt := range tests {
@@ -256,5 +259,45 @@ func TestNewWiresConfiguredCatalogHTTPSearcher(t *testing.T) {
 	}
 	if got.Count != 1 || got.Products[0].ProductID != "534690" {
 		t.Fatalf("result = %#v, want mapped catalog product", got)
+	}
+}
+
+func TestNewWiresConfiguredCheckoutHTTPClient(t *testing.T) {
+	t.Parallel()
+
+	var gotRequestID string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotRequestID = r.Header.Get(httpclient.HeaderRequestID)
+		if r.URL.Path != "/api/checkout/pub/orderForm/of-app" {
+			t.Fatalf("request path = %q, want checkout orderForm path", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"orderFormId":"of-app","salesChannel":"1","value":100,"items":[],"totalizers":[]}`))
+	}))
+	defer server.Close()
+
+	application, err := app.New(app.Options{Config: config.Options{Env: map[string]string{
+		"EXITO_VTEX_CHECKOUT_BASE_URL_QA": server.URL,
+	}}})
+	if err != nil {
+		t.Fatalf("app.New() error = %v", err)
+	}
+
+	envelope, err := execution.NewPipeline(
+		application.Registry,
+		execution.WithRequestIDGenerator(func() (string, error) { return "req_app_checkout", nil }),
+	).Execute(context.Background(), execution.ExecuteRequest{
+		CapabilityID: checkout.CapabilityGetOrderFormID,
+		Input:        capability.Input{"brand": "exito", "orderFormId": "of-app"},
+		Profile:      application.Config.Profile,
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !envelope.OK {
+		t.Fatalf("OK = false, want true: %#v", envelope.Error)
+	}
+	if gotRequestID != "req_app_checkout" {
+		t.Fatalf("%s = %q, want req_app_checkout", httpclient.HeaderRequestID, gotRequestID)
 	}
 }

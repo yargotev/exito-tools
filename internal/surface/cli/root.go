@@ -12,6 +12,7 @@ import (
 	"github.com/yargotev/exito-tools/internal/capability"
 	"github.com/yargotev/exito-tools/internal/config"
 	"github.com/yargotev/exito-tools/internal/domain/catalog"
+	"github.com/yargotev/exito-tools/internal/domain/checkout"
 	"github.com/yargotev/exito-tools/internal/domain/geo"
 	"github.com/yargotev/exito-tools/internal/domain/orders"
 	"github.com/yargotev/exito-tools/internal/execution"
@@ -74,6 +75,7 @@ func NewRoot(bootstrap Bootstrapper) *cobra.Command {
 	command.AddCommand(newOrdersCommand(bootstrap, &options))
 	command.AddCommand(newGeoCommand(bootstrap, &options))
 	command.AddCommand(newCatalogCommand(bootstrap, &options))
+	command.AddCommand(newCheckoutCommand(bootstrap, &options))
 	command.AddCommand(newTUICommand(bootstrap, &options))
 	return command
 }
@@ -168,6 +170,95 @@ func newCapabilitiesCommand(bootstrap Bootstrapper, options *rootOptions) *cobra
 			return presenter.WriteJSON(cmd.OutOrStdout(), envelope)
 		},
 	}
+}
+
+func newCheckoutCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Command {
+	command := &cobra.Command{
+		Use:   "checkout",
+		Short: "Run Checkout Domain commands",
+	}
+	command.AddCommand(newCheckoutGetOrderFormCommand(bootstrap, options))
+	command.AddCommand(newCheckoutCreateOrderFormCommand(bootstrap, options))
+	return command
+}
+
+func newCheckoutGetOrderFormCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Command {
+	var brand string
+	var orderFormID string
+
+	command := &cobra.Command{
+		Use:   "get-order-form",
+		Short: "Get a VTEX Checkout orderForm by ID",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			application, err := bootstrap(appOptions(*options))
+			if err != nil {
+				return err
+			}
+
+			pipeline := execution.NewPipeline(application.Registry)
+			envelope, err := pipeline.Execute(cmd.Context(), execution.ExecuteRequest{
+				CapabilityID: checkout.CapabilityGetOrderFormID,
+				Input: capability.Input{
+					"brand":       brand,
+					"orderFormId": orderFormID,
+				},
+				Profile:       application.Config.Profile,
+				CorrelationID: options.correlationID,
+			})
+			if err != nil {
+				return err
+			}
+
+			return writeExecutionEnvelope(cmd.OutOrStdout(), envelope)
+		},
+	}
+
+	command.Flags().StringVar(&brand, "brand", "exito", "VTEX brand account to query: exito or carulla")
+	command.Flags().StringVar(&orderFormID, "order-form-id", "", "VTEX Checkout orderForm identifier")
+	_ = command.MarkFlagRequired("order-form-id")
+	return command
+}
+
+func newCheckoutCreateOrderFormCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Command {
+	var brand string
+	var salesChannel string
+	var confirmed bool
+
+	command := &cobra.Command{
+		Use:   "create-order-form",
+		Short: "Create a VTEX Checkout orderForm",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			application, err := bootstrap(appOptions(*options))
+			if err != nil {
+				return err
+			}
+
+			pipeline := execution.NewPipeline(application.Registry)
+			envelope, err := pipeline.Execute(cmd.Context(), execution.ExecuteRequest{
+				CapabilityID: checkout.CapabilityCreateOrderFormID,
+				Input: capability.Input{
+					"brand":        brand,
+					"salesChannel": salesChannel,
+				},
+				Profile:       application.Config.Profile,
+				CorrelationID: options.correlationID,
+				Confirmed:     confirmed,
+			})
+			if err != nil {
+				return err
+			}
+
+			return writeExecutionEnvelope(cmd.OutOrStdout(), envelope)
+		},
+	}
+
+	command.Flags().StringVar(&brand, "brand", "exito", "VTEX brand account to query: exito or carulla")
+	command.Flags().StringVar(&salesChannel, "sales-channel", "", "VTEX sales channel/trade policy used as sc")
+	command.Flags().BoolVar(&confirmed, "confirm", false, "Explicitly confirm VTEX Checkout orderForm creation")
+	_ = command.MarkFlagRequired("sales-channel")
+	return command
 }
 
 func newCatalogCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Command {

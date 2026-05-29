@@ -13,6 +13,7 @@ import (
 	"github.com/yargotev/exito-tools/internal/capability"
 	"github.com/yargotev/exito-tools/internal/config"
 	"github.com/yargotev/exito-tools/internal/domain/catalog"
+	"github.com/yargotev/exito-tools/internal/domain/checkout"
 	"github.com/yargotev/exito-tools/internal/domain/geo"
 	"github.com/yargotev/exito-tools/internal/domain/orders"
 	"github.com/yargotev/exito-tools/internal/registry"
@@ -56,6 +57,7 @@ func TestRootHelpPaths(t *testing.T) {
 				"orders",
 				"geo",
 				"catalog",
+				"checkout",
 				"tui",
 			} {
 				if !strings.Contains(rendered, fragment) {
@@ -1389,5 +1391,53 @@ func TestCatalogIntelligentSearchRegionalizedProductsCommandRunsCapabilityWhenCo
 	}
 	if got.Meta.CorrelationID != "corr-reg-search" || got.Meta.CapabilityID != workflow.CapabilityRegionalizedIntelligentSearchProductsID {
 		t.Fatalf("metadata = %#v, want workflow capability", got.Meta)
+	}
+}
+
+func TestCheckoutCreateOrderFormRequiresConfirmation(t *testing.T) {
+	t.Parallel()
+
+	called := false
+	builder := registry.NewBuilder()
+	if err := builder.RegisterExecutable(capability.Executable{
+		Definition: checkout.CreateOrderFormDefinition(),
+		Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
+			called = true
+			return capability.ExecutionResult{Data: checkout.CreateOrderFormResult{}}, nil
+		},
+	}); err != nil {
+		t.Fatalf("RegisterExecutable() error = %v", err)
+	}
+
+	root := clisurface.NewRoot(func(options app.Options) (*app.Application, error) {
+		return &app.Application{Config: config.Effective{Profile: "staging"}, Registry: builder.Finalize()}, nil
+	})
+
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stdout)
+	root.SetArgs([]string{"checkout", "create-order-form", "--brand", "exito", "--sales-channel", "1"})
+
+	if err := root.Execute(); err == nil {
+		t.Fatalf("Execute() error = nil, want failure")
+	}
+	if called {
+		t.Fatalf("checkout handler was called without confirmation")
+	}
+
+	var got struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+		Meta struct {
+			CapabilityID string `json:"capabilityId"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("checkout output is not JSON: %v\n%s", err, stdout.String())
+	}
+	if got.OK || got.Error.Code != "CONFIRMATION_REQUIRED" || got.Meta.CapabilityID != checkout.CapabilityCreateOrderFormID {
+		t.Fatalf("envelope = %#v, want confirmation-required checkout failure", got)
 	}
 }

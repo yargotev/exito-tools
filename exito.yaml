@@ -20,6 +20,11 @@ profiles:
         baseUrl: https://exito.vtexcommercestable.com.br
       carulla:
         baseUrl: https://carulla.vtexcommercestable.com.br
+    vtexCheckout:
+      exito:
+        baseUrl: https://exito.vtexcommercestable.com.br
+      carulla:
+        baseUrl: https://carulla.vtexcommercestable.com.br
   prod:
     orders:
       baseUrl: https://bromo.grupo-exito.com/apioms/api/v1/IUYASVSFSBCJS/geoms
@@ -34,6 +39,11 @@ profiles:
       carulla:
         baseUrl: https://www.carulla.com
     vtexIntelligentSearch:
+      exito:
+        baseUrl: https://exitocol.vtexcommercestable.com.br
+      carulla:
+        baseUrl: https://carulla.vtexcommercestable.com.br
+    vtexCheckout:
       exito:
         baseUrl: https://exitocol.vtexcommercestable.com.br
       carulla:

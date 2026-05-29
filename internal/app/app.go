@@ -3,6 +3,7 @@ package app
 import (
 	"github.com/yargotev/exito-tools/internal/config"
 	"github.com/yargotev/exito-tools/internal/domain/catalog"
+	"github.com/yargotev/exito-tools/internal/domain/checkout"
 	"github.com/yargotev/exito-tools/internal/domain/geo"
 	"github.com/yargotev/exito-tools/internal/domain/orders"
 	"github.com/yargotev/exito-tools/internal/registry"
@@ -48,6 +49,13 @@ func New(options Options) (*Application, error) {
 		return nil, err
 	}
 	if err := builder.RegisterExecutable(catalog.NewCreateVTEXSegmentCapability(catalogVTEXSegmentCreator(effectiveConfig))); err != nil {
+		return nil, err
+	}
+	checkoutProvider := checkoutClient(effectiveConfig)
+	if err := builder.RegisterExecutable(checkout.NewGetOrderFormCapability(checkoutProvider)); err != nil {
+		return nil, err
+	}
+	if err := builder.RegisterExecutable(checkout.NewCreateOrderFormCapability(checkoutProvider)); err != nil {
 		return nil, err
 	}
 	if err := builder.RegisterExecutable(workflow.NewRegionalizedIntelligentSearchProductsCapability(
@@ -163,4 +171,24 @@ func geoVTEXBrandRegionResolver(provider config.VTEXCatalogBrandProvider) geo.VT
 		return geo.UnavailableVTEXRegionResolver{}
 	}
 	return geo.NewHTTPVTEXRegionResolver(geo.HTTPVTEXRegionResolverConfig{BaseURL: provider.BaseURL}, nil)
+}
+
+func checkoutClient(effectiveConfig config.Effective) interface {
+	checkout.Getter
+	checkout.Creator
+} {
+	return checkout.NewBrandClient(
+		checkoutBrandClient(effectiveConfig.VTEXCheckoutProvider.Exito),
+		checkoutBrandClient(effectiveConfig.VTEXCheckoutProvider.Carulla),
+	)
+}
+
+func checkoutBrandClient(provider config.VTEXCatalogBrandProvider) interface {
+	checkout.Getter
+	checkout.Creator
+} {
+	if !provider.Configured {
+		return checkout.UnavailableClient{}
+	}
+	return checkout.NewHTTPClient(checkout.HTTPClientConfig{BaseURL: provider.BaseURL}, nil)
 }
