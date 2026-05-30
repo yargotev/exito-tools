@@ -183,6 +183,7 @@ func newCheckoutCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Com
 	command.AddCommand(newCheckoutCreateOrderFormCommand(bootstrap, options))
 	command.AddCommand(newCheckoutAddItemsCommand(bootstrap, options))
 	command.AddCommand(newCheckoutUpdateClientProfileCommand(bootstrap, options))
+	command.AddCommand(newCheckoutUpdateShippingDataCommand(bootstrap, options))
 	return command
 }
 
@@ -360,6 +361,56 @@ func newCheckoutUpdateClientProfileCommand(bootstrap Bootstrapper, options *root
 	command.Flags().StringVar(&orderFormID, "order-form-id", "", "VTEX Checkout orderForm identifier")
 	command.Flags().StringVar(&inputJSON, "input-json", "", "Client profile JSON with email, firstName, lastName, documentType, document, and phone")
 	command.Flags().BoolVar(&confirmed, "confirm", false, "Explicitly confirm VTEX Checkout client profile update")
+	_ = command.MarkFlagRequired("order-form-id")
+	_ = command.MarkFlagRequired("input-json")
+	return command
+}
+
+func newCheckoutUpdateShippingDataCommand(bootstrap Bootstrapper, options *rootOptions) *cobra.Command {
+	var brand string
+	var orderFormID string
+	var inputJSON string
+	var confirmed bool
+
+	command := &cobra.Command{
+		Use:   "update-shipping-data",
+		Short: "Attach shipping data to a VTEX Checkout orderForm",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			shippingData, err := decodeRunInput([]byte(inputJSON))
+			if err != nil {
+				return err
+			}
+
+			application, err := bootstrap(appOptions(*options))
+			if err != nil {
+				return err
+			}
+
+			pipeline := execution.NewPipeline(application.Registry)
+			envelope, err := pipeline.Execute(cmd.Context(), execution.ExecuteRequest{
+				CapabilityID: checkout.CapabilityUpdateShippingDataID,
+				Input: capability.Input{
+					"brand":        brand,
+					"orderFormId":  orderFormID,
+					"shippingData": map[string]any(shippingData),
+				},
+				Profile:       application.Config.Profile,
+				CorrelationID: options.correlationID,
+				Confirmed:     confirmed,
+			})
+			if err != nil {
+				return err
+			}
+
+			return writeExecutionEnvelope(cmd.OutOrStdout(), envelope)
+		},
+	}
+
+	command.Flags().StringVar(&brand, "brand", "exito", "VTEX brand account to query: exito or carulla")
+	command.Flags().StringVar(&orderFormID, "order-form-id", "", "VTEX Checkout orderForm identifier")
+	command.Flags().StringVar(&inputJSON, "input-json", "", "Shipping data JSON with selectedAddresses and logisticsInfo")
+	command.Flags().BoolVar(&confirmed, "confirm", false, "Explicitly confirm VTEX Checkout shipping data update")
 	_ = command.MarkFlagRequired("order-form-id")
 	_ = command.MarkFlagRequired("input-json")
 	return command

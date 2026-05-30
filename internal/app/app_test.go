@@ -78,6 +78,7 @@ func TestNewWiresBootCapabilities(t *testing.T) {
 		{id: checkout.CapabilityCreateOrderFormID, domain: "checkout"},
 		{id: checkout.CapabilityAddItemsID, domain: "checkout"},
 		{id: checkout.CapabilityUpdateClientProfileID, domain: "checkout"},
+		{id: checkout.CapabilityUpdateShippingDataID, domain: "checkout"},
 	}
 
 	for _, tt := range tests {

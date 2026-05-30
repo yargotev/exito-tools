@@ -64,6 +64,9 @@ func New(options Options) (*Application, error) {
 	if err := builder.RegisterExecutable(checkout.NewUpdateClientProfileCapability(checkoutProvider)); err != nil {
 		return nil, err
 	}
+	if err := builder.RegisterExecutable(checkout.NewUpdateShippingDataCapability(checkoutProvider)); err != nil {
+		return nil, err
+	}
 	if err := builder.RegisterExecutable(workflow.NewRegionalizedIntelligentSearchProductsCapability(
 		geoVTEXRegionResolver(effectiveConfig),
 		catalogVTEXSegmentCreator(effectiveConfig),
@@ -184,6 +187,7 @@ func checkoutClient(effectiveConfig config.Effective) interface {
 	checkout.Creator
 	checkout.Adder
 	checkout.ClientProfileUpdater
+	checkout.ShippingDataUpdater
 } {
 	return checkout.NewBrandClient(
 		checkoutBrandClient(effectiveConfig.VTEXCheckoutProvider.Exito),
@@ -196,6 +200,7 @@ func checkoutBrandClient(provider config.VTEXCatalogBrandProvider) interface {
 	checkout.Creator
 	checkout.Adder
 	checkout.ClientProfileUpdater
+	checkout.ShippingDataUpdater
 } {
 	if !provider.Configured {
 		return checkout.UnavailableClient{}

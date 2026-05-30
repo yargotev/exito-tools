@@ -92,6 +92,23 @@ func (c HTTPClient) UpdateClientProfile(ctx context.Context, input UpdateClientP
 	return c.doOrderForm(request, input.Brand, path)
 }
 
+func (c HTTPClient) UpdateShippingData(ctx context.Context, input UpdateShippingDataInput) (OrderFormSummary, error) {
+	if strings.TrimSpace(c.baseURL) == "" {
+		return OrderFormSummary{}, capability.StructuredError{Code: ErrorCheckoutNotConfigured, Message: "VTEX Checkout client is not configured."}
+	}
+	path := checkoutOrderFormPath + "/" + url.PathEscape(input.OrderFormID) + "/attachments/shippingData"
+	body, err := json.Marshal(input.ShippingData)
+	if err != nil {
+		return OrderFormSummary{}, capability.StructuredError{Code: ErrorCheckoutInvalidInput, Message: "Checkout shipping data request is invalid."}
+	}
+	request, err := c.client.NewRequest(ctx, http.MethodPost, path, bytes.NewReader(body))
+	if err != nil {
+		return OrderFormSummary{}, capability.StructuredError{Code: ErrorCheckoutNotConfigured, Message: "VTEX Checkout provider base URL is invalid."}
+	}
+	request.Header.Set("Content-Type", "application/json")
+	return c.doOrderForm(request, input.Brand, path)
+}
+
 func (c HTTPClient) doOrderForm(request *http.Request, brand string, requestPath string) (OrderFormSummary, error) {
 	response, err := c.client.Do(request)
 	if err != nil {
@@ -109,13 +126,13 @@ func (c HTTPClient) doOrderForm(request *http.Request, brand string, requestPath
 }
 
 type orderFormDTO struct {
-	ID                string         `json:"orderFormId"`
-	SalesChannel      string         `json:"salesChannel"`
-	Value             int            `json:"value"`
-	Totalizers        []totalizerDTO `json:"totalizers"`
-	Items             []itemDTO      `json:"items"`
-	ClientProfileData any            `json:"clientProfileData"`
-	ShippingData      any            `json:"shippingData"`
+	ID                string          `json:"orderFormId"`
+	SalesChannel      string          `json:"salesChannel"`
+	Value             int             `json:"value"`
+	Totalizers        []totalizerDTO  `json:"totalizers"`
+	Items             []itemDTO       `json:"items"`
+	ClientProfileData any             `json:"clientProfileData"`
+	ShippingData      shippingDataDTO `json:"shippingData"`
 }
 
 type totalizerDTO struct {
@@ -132,6 +149,19 @@ type itemDTO struct {
 	Price        int    `json:"price"`
 	SellingPrice int    `json:"sellingPrice"`
 	Availability string `json:"availability"`
+}
+
+type shippingDataDTO struct {
+	Address           any                `json:"address"`
+	SelectedAddresses any                `json:"selectedAddresses"`
+	LogisticsInfo     []logisticsInfoDTO `json:"logisticsInfo"`
+}
+
+type logisticsInfoDTO struct {
+	ItemIndex               int    `json:"itemIndex"`
+	SelectedSLA             string `json:"selectedSla"`
+	SelectedDeliveryChannel string `json:"selectedDeliveryChannel"`
+	Price                   int    `json:"price"`
 }
 
 type addItemsRequestDTO struct {
@@ -162,7 +192,24 @@ func mapOrderFormDTO(dto orderFormDTO, brand string, requestPath string, status 
 	for _, totalizer := range dto.Totalizers {
 		totalizers = append(totalizers, TotalizerSummary(totalizer))
 	}
-	return OrderFormSummary{Brand: normalizedBrand(brand), ID: dto.ID, SalesChannel: dto.SalesChannel, Value: dto.Value, Totalizers: totalizers, Items: items, ItemCount: len(items), ClientProfileDataSet: isSet(dto.ClientProfileData), ShippingDataSet: isSet(dto.ShippingData), Diagnostics: Diagnostics{RequestPath: requestPath, ProviderStatus: status}}
+	selectedSLAs := make([]SelectedSLASummary, 0, len(dto.ShippingData.LogisticsInfo))
+	for _, logistics := range dto.ShippingData.LogisticsInfo {
+		selectedSLAs = append(selectedSLAs, SelectedSLASummary(logistics))
+	}
+	return OrderFormSummary{Brand: normalizedBrand(brand), ID: dto.ID, SalesChannel: dto.SalesChannel, Value: dto.Value, Totalizers: totalizers, Items: items, ItemCount: len(items), ClientProfileDataSet: isSet(dto.ClientProfileData), ShippingDataSet: isShippingDataSet(dto.ShippingData), ShippingTotal: shippingTotal(totalizers), SelectedSLAs: selectedSLAs, Diagnostics: Diagnostics{RequestPath: requestPath, ProviderStatus: status}}
+}
+
+func shippingTotal(totalizers []TotalizerSummary) int {
+	for _, totalizer := range totalizers {
+		if totalizer.ID == "Shipping" {
+			return totalizer.Value
+		}
+	}
+	return 0
+}
+
+func isShippingDataSet(value shippingDataDTO) bool {
+	return isSet(value.Address) || isSet(value.SelectedAddresses) || len(value.LogisticsInfo) > 0
 }
 
 func isSet(value any) bool {

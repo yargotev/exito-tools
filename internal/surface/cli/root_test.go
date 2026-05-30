@@ -1614,3 +1614,93 @@ func TestCheckoutUpdateClientProfileParsesInputJSONAndRedactsOutput(t *testing.T
 		t.Fatalf("stdout contains raw client profile data: %s", stdout.String())
 	}
 }
+
+func TestCheckoutUpdateShippingDataRequiresConfirmation(t *testing.T) {
+	t.Parallel()
+
+	called := false
+	builder := registry.NewBuilder()
+	if err := builder.RegisterExecutable(capability.Executable{
+		Definition: checkout.UpdateShippingDataDefinition(),
+		Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
+			called = true
+			return capability.ExecutionResult{Data: checkout.UpdateShippingDataResult{}}, nil
+		},
+	}); err != nil {
+		t.Fatalf("RegisterExecutable() error = %v", err)
+	}
+
+	root := clisurface.NewRoot(func(options app.Options) (*app.Application, error) {
+		return &app.Application{Config: config.Effective{Profile: "staging"}, Registry: builder.Finalize()}, nil
+	})
+
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stdout)
+	root.SetArgs([]string{"checkout", "update-shipping-data", "--brand", "exito", "--order-form-id", "of-1", "--input-json", `{"selectedAddresses":[{"addressType":"residential","receiverName":"Jane Doe","country":"COL","city":"Bogota","state":"DC","street":"Secret Street","number":"10","neighborhood":"Centro"}],"logisticsInfo":[{"itemIndex":0,"selectedSla":"Normal","selectedDeliveryChannel":"delivery"}]}`})
+
+	if err := root.Execute(); err == nil {
+		t.Fatalf("Execute() error = nil, want failure")
+	}
+	if called {
+		t.Fatalf("checkout handler was called without confirmation")
+	}
+
+	var got struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+		Meta struct {
+			CapabilityID string `json:"capabilityId"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("checkout output is not JSON: %v\n%s", err, stdout.String())
+	}
+	if got.OK || got.Error.Code != "CONFIRMATION_REQUIRED" || got.Meta.CapabilityID != checkout.CapabilityUpdateShippingDataID {
+		t.Fatalf("envelope = %#v, want confirmation-required checkout failure", got)
+	}
+}
+
+func TestCheckoutUpdateShippingDataParsesInputJSONAndRedactsOutput(t *testing.T) {
+	t.Parallel()
+
+	var gotInput capability.Input
+	builder := registry.NewBuilder()
+	if err := builder.RegisterExecutable(capability.Executable{
+		Definition: checkout.UpdateShippingDataDefinition(),
+		Handler: func(ctx context.Context, request capability.ExecutionRequest) (capability.ExecutionResult, error) {
+			gotInput = request.Input
+			return capability.ExecutionResult{Data: checkout.UpdateShippingDataResult{OrderForm: checkout.OrderFormSummary{ID: "of-1", ShippingDataSet: true, ShippingTotal: 5900, SelectedSLAs: []checkout.SelectedSLASummary{{ItemIndex: 0, SelectedSLA: "Normal", SelectedDeliveryChannel: "delivery", Price: 5900}}}}}, nil
+		},
+	}); err != nil {
+		t.Fatalf("RegisterExecutable() error = %v", err)
+	}
+
+	root := clisurface.NewRoot(func(options app.Options) (*app.Application, error) {
+		return &app.Application{Config: config.Effective{Profile: "staging"}, Registry: builder.Finalize()}, nil
+	})
+
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stdout)
+	root.SetArgs([]string{"checkout", "update-shipping-data", "--brand", "carulla", "--order-form-id", "of-1", "--input-json", `{"selectedAddresses":[{"addressType":"residential","receiverName":"Jane Doe","postalCode":"110111","country":"COL","city":"Bogota","state":"DC","street":"Secret Street","number":"10","neighborhood":"Centro","geoCoordinates":[-74.0721,4.711]}],"logisticsInfo":[{"itemIndex":0,"selectedSla":"Normal","selectedDeliveryChannel":"delivery"}]}`, "--confirm"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v\n%s", err, stdout.String())
+	}
+	shippingData, ok := gotInput["shippingData"].(map[string]any)
+	if !ok {
+		t.Fatalf("shippingData input = %#v, want JSON object", gotInput["shippingData"])
+	}
+	addresses := shippingData["selectedAddresses"].([]any)
+	address := addresses[0].(map[string]any)
+	coordinates := address["geoCoordinates"].([]any)
+	if gotInput["brand"] != "carulla" || gotInput["orderFormId"] != "of-1" || coordinates[0].(float64) != -74.0721 || coordinates[1].(float64) != 4.711 {
+		t.Fatalf("input = %#v, want parsed brand/orderForm/shipping data", gotInput)
+	}
+	if strings.Contains(stdout.String(), "Jane Doe") || strings.Contains(stdout.String(), "Secret Street") || strings.Contains(stdout.String(), "110111") {
+		t.Fatalf("stdout contains raw shipping data: %s", stdout.String())
+	}
+}
