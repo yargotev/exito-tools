@@ -5,6 +5,7 @@ import (
 	"github.com/yargotev/exito-tools/internal/domain/catalog"
 	"github.com/yargotev/exito-tools/internal/domain/checkout"
 	"github.com/yargotev/exito-tools/internal/domain/geo"
+	"github.com/yargotev/exito-tools/internal/domain/masterdata"
 	"github.com/yargotev/exito-tools/internal/domain/orders"
 	"github.com/yargotev/exito-tools/internal/registry"
 	"github.com/yargotev/exito-tools/internal/workflow"
@@ -65,6 +66,26 @@ func New(options Options) (*Application, error) {
 		return nil, err
 	}
 	if err := builder.RegisterExecutable(checkout.NewUpdateShippingDataCapability(checkoutProvider)); err != nil {
+		return nil, err
+	}
+
+	masterDataProvider := masterDataClient(effectiveConfig)
+	if err := builder.RegisterExecutable(masterdata.NewGetDocumentCapability(masterDataProvider)); err != nil {
+		return nil, err
+	}
+	if err := builder.RegisterExecutable(masterdata.NewSearchDocumentsCapability(masterDataProvider)); err != nil {
+		return nil, err
+	}
+	if err := builder.RegisterExecutable(masterdata.NewScrollDocumentsCapability(masterDataProvider)); err != nil {
+		return nil, err
+	}
+	if err := builder.RegisterExecutable(masterdata.NewListSchemasCapability(masterDataProvider)); err != nil {
+		return nil, err
+	}
+	if err := builder.RegisterExecutable(masterdata.NewGetSchemaCapability(masterDataProvider)); err != nil {
+		return nil, err
+	}
+	if err := builder.RegisterExecutable(masterdata.NewListIndicesCapability(masterDataProvider)); err != nil {
 		return nil, err
 	}
 	if err := builder.RegisterExecutable(workflow.NewRegionalizedIntelligentSearchProductsCapability(
@@ -206,4 +227,18 @@ func checkoutBrandClient(provider config.VTEXCatalogBrandProvider) interface {
 		return checkout.UnavailableClient{}
 	}
 	return checkout.NewHTTPClient(checkout.HTTPClientConfig{BaseURL: provider.BaseURL}, nil)
+}
+
+func masterDataClient(effectiveConfig config.Effective) masterdata.Client {
+	return masterdata.NewBrandClient(
+		masterDataBrandClient(effectiveConfig.VTEXMasterDataProvider.Exito),
+		masterDataBrandClient(effectiveConfig.VTEXMasterDataProvider.Carulla),
+	)
+}
+
+func masterDataBrandClient(provider config.VTEXOMSBrandProvider) masterdata.Client {
+	if !provider.Configured {
+		return masterdata.UnavailableClient{}
+	}
+	return masterdata.NewHTTPClient(masterdata.HTTPClientConfig{BaseURL: provider.BaseURL, AppKey: provider.AppKey, AppToken: provider.AppToken}, nil)
 }

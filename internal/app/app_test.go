@@ -12,6 +12,7 @@ import (
 	"github.com/yargotev/exito-tools/internal/domain/catalog"
 	"github.com/yargotev/exito-tools/internal/domain/checkout"
 	"github.com/yargotev/exito-tools/internal/domain/geo"
+	"github.com/yargotev/exito-tools/internal/domain/masterdata"
 	"github.com/yargotev/exito-tools/internal/domain/orders"
 	"github.com/yargotev/exito-tools/internal/execution"
 	"github.com/yargotev/exito-tools/internal/platform/httpclient"
@@ -79,6 +80,12 @@ func TestNewWiresBootCapabilities(t *testing.T) {
 		{id: checkout.CapabilityAddItemsID, domain: "checkout"},
 		{id: checkout.CapabilityUpdateClientProfileID, domain: "checkout"},
 		{id: checkout.CapabilityUpdateShippingDataID, domain: "checkout"},
+		{id: masterdata.CapabilityGetDocumentID, domain: "masterdata"},
+		{id: masterdata.CapabilitySearchDocumentsID, domain: "masterdata"},
+		{id: masterdata.CapabilityScrollDocumentsID, domain: "masterdata"},
+		{id: masterdata.CapabilityListSchemasID, domain: "masterdata"},
+		{id: masterdata.CapabilityGetSchemaID, domain: "masterdata"},
+		{id: masterdata.CapabilityListIndicesID, domain: "masterdata"},
 	}
 
 	for _, tt := range tests {
@@ -302,5 +309,80 @@ func TestNewWiresConfiguredCheckoutHTTPClient(t *testing.T) {
 	}
 	if gotRequestID != "req_app_checkout" {
 		t.Fatalf("%s = %q, want req_app_checkout", httpclient.HeaderRequestID, gotRequestID)
+	}
+}
+
+func TestNewWiresConfiguredMasterDataHTTPClient(t *testing.T) {
+	t.Parallel()
+
+	var gotRequestID string
+	var gotAppKey string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotRequestID = r.Header.Get(httpclient.HeaderRequestID)
+		gotAppKey = r.Header.Get("X-VTEX-API-AppKey")
+		if r.URL.Path != "/api/dataentities/CL/documents/doc-app" {
+			t.Fatalf("request path = %q, want Master Data document path", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"doc-app","email":"customer@example.test"}`))
+	}))
+	defer server.Close()
+
+	application, err := app.New(app.Options{Config: config.Options{Env: map[string]string{ // #nosec G101 -- test-only fake VTEX credentials.
+		"EXITO_VTEX_MASTERDATA_BASE_URL_QA": server.URL,
+		"EXITO_APP_KEY_QA":                  "md-app-key",
+		"EXITO_APP_TOKEN_QA":                "md-app-token",
+	}}})
+	if err != nil {
+		t.Fatalf("app.New() error = %v", err)
+	}
+
+	envelope, err := execution.NewPipeline(
+		application.Registry,
+		execution.WithRequestIDGenerator(func() (string, error) { return "req_app_masterdata", nil }),
+	).Execute(context.Background(), execution.ExecuteRequest{
+		CapabilityID: masterdata.CapabilityGetDocumentID,
+		Input:        capability.Input{"brand": "exito", "entity": "CL", "documentId": "doc-app", "fields": []any{"email"}},
+		Profile:      application.Config.Profile,
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !envelope.OK {
+		t.Fatalf("OK = false, want true: %#v", envelope.Error)
+	}
+	if gotRequestID != "req_app_masterdata" || gotAppKey != "md-app-key" {
+		t.Fatalf("headers = requestID:%q appKey:%q, want propagated metadata and credentials", gotRequestID, gotAppKey)
+	}
+	got, ok := (*envelope.Data).(masterdata.GetDocumentResult)
+	if !ok {
+		t.Fatalf("Data = %T, want masterdata.GetDocumentResult", *envelope.Data)
+	}
+	if got.Document.DocumentID != "doc-app" || got.Document.Data["email"] != "customer@example.test" {
+		t.Fatalf("result = %#v, want mapped Master Data document", got)
+	}
+}
+
+func TestMasterDataCapabilityWithoutProviderReturnsStructuredError(t *testing.T) {
+	t.Parallel()
+
+	application, err := app.New(app.Options{Config: config.Options{Env: map[string]string{}}})
+	if err != nil {
+		t.Fatalf("app.New() error = %v", err)
+	}
+
+	envelope, err := execution.NewPipeline(application.Registry).Execute(context.Background(), execution.ExecuteRequest{
+		CapabilityID: masterdata.CapabilityGetDocumentID,
+		Input:        capability.Input{"brand": "exito", "entity": "EX", "documentId": "doc-app"},
+		Profile:      application.Config.Profile,
+	})
+	if err != nil {
+		t.Fatalf("Execute() transport error = %v", err)
+	}
+	if envelope.OK {
+		t.Fatalf("OK = true, want structured Master Data configuration failure")
+	}
+	if envelope.Error == nil || envelope.Error.Code != masterdata.ErrorMasterDataNotConfigured {
+		t.Fatalf("error = %#v, want %s", envelope.Error, masterdata.ErrorMasterDataNotConfigured)
 	}
 }

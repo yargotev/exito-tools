@@ -101,18 +101,18 @@ profiles:
   staging:
     vtexMasterData:
       exito:
-        baseUrl: https://master--exito.myvtex.com
+        baseUrl: https://exito.vtexcommercestable.com.br
       carulla:
-        baseUrl: https://master--carullaqa.myvtex.com
+        baseUrl: https://carulla.vtexcommercestable.com.br
 ```
 
 Recommended environment variables:
 
 ```env
-EXITO_VTEX_MASTERDATA_BASE_URL_QA=https://master--exito.myvtex.com
-EXITO_VTEX_MASTERDATA_BASE_URL_PROD=https://master--exitocol.myvtex.com
-CARULLA_VTEX_MASTERDATA_BASE_URL_QA=https://master--carullaqa.myvtex.com
-CARULLA_VTEX_MASTERDATA_BASE_URL_PROD=https://master--carulla.myvtex.com
+EXITO_VTEX_MASTERDATA_BASE_URL_QA=https://exito.vtexcommercestable.com.br
+EXITO_VTEX_MASTERDATA_BASE_URL_PROD=https://exitocol.vtexcommercestable.com.br
+CARULLA_VTEX_MASTERDATA_BASE_URL_QA=https://carulla.vtexcommercestable.com.br
+CARULLA_VTEX_MASTERDATA_BASE_URL_PROD=https://carulla.vtexcommercestable.com.br
 
 # Reuse the existing VTEX server-side credential convention when the same app key/token has Master Data permissions.
 EXITO_APP_KEY_QA=...

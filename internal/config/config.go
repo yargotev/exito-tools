@@ -55,6 +55,11 @@ const (
 	envExitoVTEXCheckoutBaseURLProd   = "EXITO_VTEX_CHECKOUT_BASE_URL_PROD"
 	envCarullaVTEXCheckoutBaseURLQA   = "CARULLA_VTEX_CHECKOUT_BASE_URL_QA"
 	envCarullaVTEXCheckoutBaseURLProd = "CARULLA_VTEX_CHECKOUT_BASE_URL_PROD"
+
+	envExitoVTEXMasterDataBaseURLQA     = "EXITO_VTEX_MASTERDATA_BASE_URL_QA"
+	envExitoVTEXMasterDataBaseURLProd   = "EXITO_VTEX_MASTERDATA_BASE_URL_PROD"
+	envCarullaVTEXMasterDataBaseURLQA   = "CARULLA_VTEX_MASTERDATA_BASE_URL_QA"
+	envCarullaVTEXMasterDataBaseURLProd = "CARULLA_VTEX_MASTERDATA_BASE_URL_PROD"
 )
 
 // Source identifies where a resolved value came from.
@@ -104,6 +109,7 @@ type Effective struct {
 	VTEXCatalogProvider           VTEXCatalogProvider
 	VTEXIntelligentSearchProvider VTEXIntelligentSearchProvider
 	VTEXCheckoutProvider          VTEXCheckoutProvider
+	VTEXMasterDataProvider        VTEXMasterDataProvider `json:"vtexMasterDataProvider"`
 }
 
 // GeoProvider contains the resolved Geo provider configuration.
@@ -142,6 +148,12 @@ type VTEXIntelligentSearchProvider struct {
 type VTEXCheckoutProvider struct {
 	Exito   VTEXCatalogBrandProvider `json:"exito"`
 	Carulla VTEXCatalogBrandProvider `json:"carulla"`
+}
+
+// VTEXMasterDataProvider contains the resolved VTEX Master Data provider configuration.
+type VTEXMasterDataProvider struct {
+	Exito   VTEXOMSBrandProvider `json:"exito"`
+	Carulla VTEXOMSBrandProvider `json:"carulla"`
 }
 
 // VTEXCatalogBrandProvider contains one brand's resolved public VTEX Catalog provider configuration.
@@ -253,6 +265,10 @@ func Resolve(options Options) (Effective, error) {
 	if err != nil {
 		return Effective{}, err
 	}
+	vtexMasterDataProvider, err := resolveVTEXMasterDataProvider(resolvedOptions.Env, credentialLayers, yamlProviders.VTEXMasterDataBaseURLs, profile)
+	if err != nil {
+		return Effective{}, err
+	}
 
 	return Effective{
 		Profile:                       profile,
@@ -267,6 +283,7 @@ func Resolve(options Options) (Effective, error) {
 		VTEXCatalogProvider:           vtexCatalogProvider,
 		VTEXIntelligentSearchProvider: vtexIntelligentSearchProvider,
 		VTEXCheckoutProvider:          vtexCheckoutProvider,
+		VTEXMasterDataProvider:        vtexMasterDataProvider,
 	}, nil
 }
 
@@ -393,6 +410,26 @@ func resolveOrdersProvider(env map[string]string, layers []CredentialLayer, yaml
 		ScopeSet:       scope.Value != "",
 		Configured:     provider.BaseURL != "" && (provider.TokenSet || credentialsConfigured),
 	}, nil
+}
+
+func resolveVTEXMasterDataProvider(env map[string]string, layers []CredentialLayer, yamlBaseURLs map[string]string, profile string) (VTEXMasterDataProvider, error) {
+	exito, err := resolveVTEXOMSBrandProvider(env, layers, yamlBaseURLs["exito"], profile, vtexOMSEnvKeys{
+		BaseURLQA: envExitoVTEXMasterDataBaseURLQA, BaseURLProd: envExitoVTEXMasterDataBaseURLProd,
+		AppKeyQA: envExitoVTEXOMSAppKeyQA, AppTokenQA: envExitoVTEXOMSAppTokenQA,
+		AppKeyProd: envExitoVTEXOMSAppKeyProd, AppTokenProd: envExitoVTEXOMSAppTokenProd,
+	})
+	if err != nil {
+		return VTEXMasterDataProvider{}, err
+	}
+	carulla, err := resolveVTEXOMSBrandProvider(env, layers, yamlBaseURLs["carulla"], profile, vtexOMSEnvKeys{
+		BaseURLQA: envCarullaVTEXMasterDataBaseURLQA, BaseURLProd: envCarullaVTEXMasterDataBaseURLProd,
+		AppKeyQA: envCarullaVTEXOMSAppKeyQA, AppTokenQA: envCarullaVTEXOMSAppTokenQA,
+		AppKeyProd: envCarullaVTEXOMSAppKeyProd, AppTokenProd: envCarullaVTEXOMSAppTokenProd,
+	})
+	if err != nil {
+		return VTEXMasterDataProvider{}, err
+	}
+	return VTEXMasterDataProvider{Exito: exito, Carulla: carulla}, nil
 }
 
 func resolveVTEXCheckoutProvider(env map[string]string, layers []CredentialLayer, yamlBaseURLs map[string]string, profile string) (VTEXCheckoutProvider, error) {
@@ -606,6 +643,7 @@ type yamlProfileProviders struct {
 	VTEXCatalogBaseURLs           map[string]string
 	VTEXIntelligentSearchBaseURLs map[string]string
 	VTEXCheckoutBaseURLs          map[string]string
+	VTEXMasterDataBaseURLs        map[string]string
 }
 
 func readYAMLProfileProviders(path string, profile string) (yamlProfileProviders, error) {
@@ -624,6 +662,7 @@ func readYAMLProfileProviders(path string, profile string) (yamlProfileProviders
 	providers.VTEXCatalogBaseURLs = map[string]string{}
 	providers.VTEXIntelligentSearchBaseURLs = map[string]string{}
 	providers.VTEXCheckoutBaseURLs = map[string]string{}
+	providers.VTEXMasterDataBaseURLs = map[string]string{}
 	inProfiles := false
 	inSelectedProfile := false
 	currentProvider := ""
@@ -631,6 +670,7 @@ func readYAMLProfileProviders(path string, profile string) (yamlProfileProviders
 	currentVTEXCatalogBrand := ""
 	currentVTEXIntelligentSearchBrand := ""
 	currentVTEXCheckoutBrand := ""
+	currentVTEXMasterDataBrand := ""
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -655,6 +695,7 @@ func readYAMLProfileProviders(path string, profile string) (yamlProfileProviders
 			currentVTEXCatalogBrand = ""
 			currentVTEXIntelligentSearchBrand = ""
 			currentVTEXCheckoutBrand = ""
+			currentVTEXMasterDataBrand = ""
 		case 2:
 			if !inProfiles {
 				continue
@@ -665,6 +706,7 @@ func readYAMLProfileProviders(path string, profile string) (yamlProfileProviders
 			currentVTEXCatalogBrand = ""
 			currentVTEXIntelligentSearchBrand = ""
 			currentVTEXCheckoutBrand = ""
+			currentVTEXMasterDataBrand = ""
 		case 4:
 			if !inProfiles || !inSelectedProfile {
 				continue
@@ -673,7 +715,8 @@ func readYAMLProfileProviders(path string, profile string) (yamlProfileProviders
 			currentVTEXCatalogBrand = ""
 			currentVTEXIntelligentSearchBrand = ""
 			currentVTEXCheckoutBrand = ""
-			if (key == "geo" || key == "orders" || key == "vtexOms" || key == "vtexCatalog" || key == "vtexIntelligentSearch" || key == "vtexCheckout") && value == "" {
+			currentVTEXMasterDataBrand = ""
+			if (key == "geo" || key == "orders" || key == "vtexOms" || key == "vtexCatalog" || key == "vtexIntelligentSearch" || key == "vtexCheckout" || key == "vtexMasterData") && value == "" {
 				currentProvider = key
 			} else {
 				currentProvider = ""
@@ -706,6 +749,12 @@ func readYAMLProfileProviders(path string, profile string) (yamlProfileProviders
 				}
 				continue
 			}
+			if currentProvider == "vtexMasterData" {
+				if (key == "exito" || key == "carulla") && value == "" {
+					currentVTEXMasterDataBrand = key
+				}
+				continue
+			}
 			if key != "baseUrl" && key != "baseURL" {
 				continue
 			}
@@ -730,6 +779,9 @@ func readYAMLProfileProviders(path string, profile string) (yamlProfileProviders
 			}
 			if currentProvider == "vtexCheckout" && currentVTEXCheckoutBrand != "" && (key == "baseUrl" || key == "baseURL") {
 				providers.VTEXCheckoutBaseURLs[currentVTEXCheckoutBrand] = value
+			}
+			if currentProvider == "vtexMasterData" && currentVTEXMasterDataBrand != "" && (key == "baseUrl" || key == "baseURL") {
+				providers.VTEXMasterDataBaseURLs[currentVTEXMasterDataBrand] = value
 			}
 		}
 	}

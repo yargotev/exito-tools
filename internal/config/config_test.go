@@ -1111,3 +1111,97 @@ profiles:
 		}
 	})
 }
+
+func TestResolveVTEXMasterDataProviderConfiguration(t *testing.T) {
+	t.Parallel()
+
+	t.Run("staging resolves Exito YAML base URL with QA credentials", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		writeTextFile(t, filepath.Join(workDir, "exito.yaml"), `defaultProfile: staging
+profiles:
+  staging:
+    vtexMasterData:
+      exito:
+        baseUrl: https://exito.vtexcommercestable.com.br
+`)
+
+		resolved := resolveForTest(t, config.Options{
+			WorkDir: workDir,
+			Env: map[string]string{ // #nosec G101 -- test-only fake VTEX credentials.
+				"EXITO_APP_KEY_QA":   "md-qa-key",
+				"EXITO_APP_TOKEN_QA": "md-qa-token",
+			},
+		})
+
+		provider := resolved.VTEXMasterDataProvider.Exito
+		if !provider.Configured {
+			t.Fatalf("Exito Master Data provider should be configured: %#v", provider)
+		}
+		if provider.BaseURL != "https://exito.vtexcommercestable.com.br" || provider.BaseURLSource != config.SourceConfigFile {
+			t.Fatalf("base URL = (%q,%q), want YAML config-file", provider.BaseURL, provider.BaseURLSource)
+		}
+		if provider.AppKey != "md-qa-key" || provider.AppToken != "md-qa-token" {
+			t.Fatalf("credentials = (%q,%q), want QA env credentials", provider.AppKey, provider.AppToken)
+		}
+	})
+
+	t.Run("prod environment overrides YAML Carulla base URL", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		writeTextFile(t, filepath.Join(workDir, "exito.yaml"), `profiles:
+  prod:
+    vtexMasterData:
+      carulla:
+        baseUrl: https://yaml-carulla.example.test
+`)
+
+		resolved := resolveForTest(t, config.Options{
+			Profile: "prod",
+			WorkDir: workDir,
+			Env: map[string]string{ // #nosec G101 -- test-only fake VTEX credentials.
+				"CARULLA_VTEX_MASTERDATA_BASE_URL_PROD": "https://env-carulla.example.test",
+				"CARULLA_APP_KEY":                       "md-prod-key",
+				"CARULLA_APP_TOKEN":                     "md-prod-token",
+			},
+		})
+
+		provider := resolved.VTEXMasterDataProvider.Carulla
+		if !provider.Configured || provider.BaseURL != "https://env-carulla.example.test" || provider.BaseURLSource != config.SourceEnvironment {
+			t.Fatalf("Carulla Master Data provider = %#v, want env-configured provider", provider)
+		}
+	})
+
+	t.Run("missing credentials leave brand unconfigured", func(t *testing.T) {
+		t.Parallel()
+
+		resolved := resolveForTest(t, config.Options{Env: map[string]string{"EXITO_VTEX_MASTERDATA_BASE_URL_QA": "https://master.example.test"}})
+		provider := resolved.VTEXMasterDataProvider.Exito
+		if provider.Configured || provider.BaseURL == "" || provider.AppKeySet || provider.AppTokenSet {
+			t.Fatalf("Exito Master Data provider = %#v, want base URL present but unconfigured without credentials", provider)
+		}
+	})
+}
+
+func TestVTEXMasterDataCredentialsAreOmittedFromEffectiveJSON(t *testing.T) {
+	t.Parallel()
+
+	resolved := resolveForTest(t, config.Options{Env: map[string]string{ // #nosec G101 -- test-only fake VTEX credentials.
+		"EXITO_VTEX_MASTERDATA_BASE_URL_QA": "https://exito.vtexcommercestable.com.br",
+		"EXITO_APP_KEY_QA":                  "md-secret-key",
+		"EXITO_APP_TOKEN_QA":                "md-secret-token",
+	}})
+
+	encoded, err := json.Marshal(resolved)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	if strings.Contains(string(encoded), "md-secret-key") || strings.Contains(string(encoded), "md-secret-token") {
+		t.Fatalf("effective config JSON leaked Master Data credentials: %s", string(encoded))
+	}
+	if !strings.Contains(string(encoded), `"vtexMasterDataProvider"`) || !strings.Contains(string(encoded), `"appKeySet":true`) || !strings.Contains(string(encoded), `"appTokenSet":true`) {
+		t.Fatalf("effective config should expose Master Data presence metadata: %s", string(encoded))
+	}
+}
